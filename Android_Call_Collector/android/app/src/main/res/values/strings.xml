@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Fireblade</string>
+    <string name="restriction_api">Fireblade API URL</string>
+    <string name="restriction_device">Registered device ID</string>
+    <string name="restriction_enrollment">One-time enrollment code</string>
+    <string name="widget_callbacks_name">Fireblade Callbacks</string>
+    <string name="widget_callbacks_compact_name">Fireblade Callback Count</string>
+</resources>

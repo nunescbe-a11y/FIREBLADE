@@ -1,0 +1,13 @@
+<resources>
+    <style name="Theme.NunesCallCollector" parent="Theme.Material3.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="colorPrimary">#E5484D</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#17181B</item>
+        <item name="android:windowBackground">#F7F7F5</item>
+        <item name="android:statusBarColor">#F7F7F5</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#F7F7F5</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

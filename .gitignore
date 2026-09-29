@@ -38,3 +38,13 @@ WhatsApp_Bridge/logs/
 
 # Generated TypeScript cache
 *.tsbuildinfo
+
+# Android generated/private files
+Android_Call_Collector/**/build/
+Android_Call_Collector/.gradle/
+Android_Call_Collector/.idea/
+Android_Call_Collector/**/.cxx/
+Android_Call_Collector/**/google-services.json
+Android_Call_Collector/**/local.properties
+Android_Call_Collector/**/*.jks
+Android_Call_Collector/**/*.keystore

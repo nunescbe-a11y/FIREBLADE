@@ -1,0 +1,115 @@
+package com.nunes.callcollector
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.View
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.nunes.callcollector.control.*
+import com.nunes.callcollector.data.AppDatabase
+import com.nunes.callcollector.databinding.ActivityMainBinding
+import com.nunes.callcollector.health.HealthReporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+class MainActivity:AppCompatActivity(){
+    private lateinit var b:ActivityMainBinding
+    private val config by lazy{ConfigStore(this)}
+    private val handler=Handler(Looper.getMainLooper())
+    private var refreshing=false
+    private val refresh=object:Runnable{override fun run(){refreshUi();handler.postDelayed(this,5000)}}
+    private val permissions=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){
+        AutomationScheduler.enqueueCapture(this,1);AutomationScheduler.enqueueHealth(this,"PERMISSIONS_CHANGED");refreshUi()
+    }
+    override fun onCreate(savedInstanceState:Bundle?){
+        super.onCreate(savedInstanceState);b=ActivityMainBinding.inflate(layoutInflater);setContentView(b.root)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(b.root) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        b.etDeviceId.setText(config.deviceId);b.etEmployee.setText(config.employee);b.etApiUrl.setText(config.apiUrl)
+        b.btnAdmin.setOnClickListener{AdminGate.unlock(this){b.adminPanel.visibility=View.VISIBLE}}
+        b.btnCloseAdmin.setOnClickListener{b.adminPanel.visibility=View.GONE}
+        b.btnSaveConfig.setOnClickListener{saveConfig()}
+        b.btnConnect.setOnClickListener{connect()}
+        b.btnPermissions.setOnClickListener{permissions.launch((mutableListOf(Manifest.permission.READ_CALL_LOG,Manifest.permission.READ_CONTACTS,Manifest.permission.READ_PHONE_STATE).apply{if(Build.VERSION.SDK_INT>=33)add(Manifest.permission.POST_NOTIFICATIONS)}).toTypedArray())}
+        b.btnScan.setOnClickListener{AutomationScheduler.enqueueCapture(this);b.tvAdminMessage.text="Call-log check requested"}
+        b.btnSync.setOnClickListener{AutomationScheduler.enqueueSync(this);CommandWorker.enqueue(this);AutomationScheduler.enqueueHealth(this,"APP_OPEN");b.tvStatus.text="Sync requested"}
+        b.btnUpdateCheck.setOnClickListener{UpdateWorker.now(this);b.tvAdminMessage.text="Update check requested"}
+        b.btnUpdate.setOnClickListener{
+            if(AppUpdater.ready(this))lifecycleScope.launch{
+                b.btnUpdate.isEnabled=false
+                try{
+                    val release=JSONObject(config.availableRelease)
+                    withContext(Dispatchers.IO){AppUpdater.verify(this@MainActivity,java.io.File(cacheDir,"updates/fireblade.apk"),release)}
+                    AppUpdater.install(this@MainActivity)
+                    b.tvStatus.text="Approve the Android update prompt. If install access was requested, enable it and tap Install Update again."
+                }catch(e:Exception){b.tvStatus.text=e.message ?: "Unable to open update"}finally{b.btnUpdate.isEnabled=true}
+            }else{UpdateWorker.now(this);b.tvStatus.text="Preparing update…"}
+        }
+        AutomationScheduler.schedulePeriodicReconciliation(this);AutomationScheduler.enqueueCapture(this,1)
+        AutomationScheduler.enqueueHealth(this,"APP_OPEN",1);AutomationScheduler.scheduleNextHealthPulse(this)
+        CommandWorker.enqueue(this);UpdateWorker.schedule(this);UpdateWorker.now(this)
+    }
+    override fun onResume(){super.onResume();handler.post(refresh)}
+    override fun onPause(){handler.removeCallbacks(refresh);b.adminPanel.visibility=View.GONE;super.onPause()}
+    private fun saveConfig():Boolean{
+        val id=b.etDeviceId.text.toString().trim().uppercase();val url=b.etApiUrl.text.toString().trim().trimEnd('/')
+        if(!id.matches(Regex("[A-Z0-9_-]{1,100}"))||!url.startsWith("https://")||android.net.Uri.parse(url).host.isNullOrBlank()){
+            b.tvAdminMessage.text="Enter a registered device ID and HTTPS API URL";return false
+        }
+        if(config.deviceId!=id||config.apiUrl!=url){config.deviceToken="";config.lastServerContact=0;config.availableRelease=""}
+        config.deviceId=id;config.employee=b.etEmployee.text.toString();config.apiUrl=url
+        AutomationScheduler.enqueueCapture(this,1);AutomationScheduler.enqueueHealth(this,"CONFIG_SAVED",2)
+        b.tvAdminMessage.text="Settings saved";return true
+    }
+    private fun connect(){
+        if(!saveConfig())return
+        val code=b.etEnrollmentCode.text.toString().trim()
+        if(code.isBlank()){b.tvAdminMessage.text="Enter the one-time code from Fireblade Web → App Updates";return}
+        b.btnConnect.isEnabled=false
+        lifecycleScope.launch{
+            try{
+                withContext(Dispatchers.IO){
+                    val response=DeviceApi.request(config,"/api/v3/enroll",JSONObject().put("device_id",config.deviceId).put("code",code),false)
+                    config.deviceToken=response.getString("device_token")
+                }
+                b.etEnrollmentCode.text?.clear();b.tvAdminMessage.text="Phone connected";CommandWorker.enqueue(this@MainActivity);UpdateWorker.now(this@MainActivity);AutomationScheduler.enqueueHealth(this@MainActivity,"CONFIG_SAVED")
+            }catch(e:Exception){b.tvAdminMessage.text=e.message ?: "Connection failed"}finally{b.btnConnect.isEnabled=true}
+        }
+    }
+    private fun refreshUi(){
+        if(refreshing)return;refreshing=true
+        lifecycleScope.launch{
+            try{
+                val (snapshot,pending)=withContext(Dispatchers.IO){HealthReporter.collect(this@MainActivity,"UI",config) to AppDatabase.get(this@MainActivity).callDao().pendingCount()}
+                val allowed=ContextCompat.checkSelfPermission(this@MainActivity,Manifest.permission.READ_CALL_LOG)==PackageManager.PERMISSION_GRANTED
+                b.tvDevice.text=config.deviceId.ifBlank{"Setup needed"}
+                b.tvCollector.text=when{!allowed->"Permission needed";config.deviceId.isBlank()||config.apiUrl.isBlank()->"Setup needed";else->"Active"}
+                b.tvServer.text=if(!snapshot.optBoolean("internet_available"))"No connection" else if(System.currentTimeMillis()-config.lastServerContact<12*60*1000&&config.lastServerContact>0)"Connected" else "No recent connection"
+                b.tvInternet.text=if(snapshot.optBoolean("internet_available"))"Connected" else "Unavailable"
+                val last=SyncStateStore(this@MainActivity).lastSuccessfulSyncEpochMs
+                b.tvCalls.text=if(pending>0)"$pending waiting to upload" else if(last>0)"Synced" else "No uploads yet"
+                b.tvLastSync.text=if(last>0)SimpleDateFormat("dd MMM, hh:mm a",Locale.getDefault()).format(Date(last)) else "—"
+                val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                val appVersionName = packageInfo.versionName ?: "Unknown"
+                @Suppress("DEPRECATION")
+                val appVersionCode = if (android.os.Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode else packageInfo.versionCode.toLong()
+                b.tvPermissions.text="Call log: ${if(allowed)"Granted" else "Required"}\nRemote checks: ${if(config.deviceToken.isBlank())"Connect this phone" else "Enrolled"}\nApp: $appVersionName ($appVersionCode)"
+                val update=config.availableRelease
+                b.btnUpdate.visibility=if(update.isNotBlank())View.VISIBLE else View.GONE
+                if(update.isNotBlank())b.btnUpdate.text=if(AppUpdater.ready(this@MainActivity))"Install Update" else "Download Update"
+            }catch(e:Exception){b.tvStatus.text=e.message ?: "Status unavailable"}finally{refreshing=false}
+        }
+    }
+}
