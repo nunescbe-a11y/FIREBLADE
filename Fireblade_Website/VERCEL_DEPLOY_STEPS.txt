@@ -16,6 +16,8 @@ FIREBLADE_MARKETING_PASSWORD
 FIREBLADE_MD_USER
 FIREBLADE_MD_PASSWORD
 FIREBASE_SERVICE_ACCOUNT_JSON (for remote FCM delivery; see ../FIREBASE_SETUP.txt)
+FIREBLADE_WHATSAPP_BRIDGE_URL (Cloudflare Tunnel public HTTPS hostname — NOT localhost)
+FIREBLADE_WHATSAPP_BRIDGE_KEY (must match FIREBLADE_WHATSAPP_BRIDGE_KEY on the bridge host)
 
 6. Test login, device status, department assignment and Check Now after deployment.
    No live deployment was performed when preparing this package.
