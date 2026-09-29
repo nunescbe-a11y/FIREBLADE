@@ -1,0 +1,119 @@
+$ErrorActionPreference = "Stop"
+
+$bridgeDir = "F:\FIREBLADE_GEN2_WHATSAPP_REBUILD\WhatsApp_Bridge"
+$secureDir = Join-Path $bridgeDir "secure"
+$logDir    = Join-Path $bridgeDir "logs"
+
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+$env:FIREBLADE_WHATSAPP_BRIDGE_KEY =
+    (Get-Content (Join-Path $secureDir "bridge.key") -Raw).Trim()
+
+# FIREBLADE_SUPABASE_ENV_START
+$webEnvPath = "F:\FIREBLADE_GEN2_WHATSAPP_REBUILD\Fireblade_Website\.env.local"
+if (-not (Test-Path -LiteralPath $webEnvPath)) {
+    throw "Fireblade website .env.local was not found; production Supabase configuration cannot be loaded."
+}
+$envMap = @{}
+foreach ($line in Get-Content -LiteralPath $webEnvPath) {
+    if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
+    $parts = $line -split '=', 2
+    $name = $parts[0].Trim()
+    $value = $parts[1].Trim()
+    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    if ($name) { $envMap[$name] = $value }
+}
+$prodUrl = $envMap['NEXT_PUBLIC_SUPABASE_URL']
+if (-not $prodUrl) { $prodUrl = $envMap['SUPABASE_URL'] }
+$prodKey = $envMap['SUPABASE_SERVER_SECRET']
+if (-not $prodKey) { $prodKey = $envMap['SUPABASE_SERVICE_ROLE_KEY'] }
+if (-not $prodKey) { $prodKey = $envMap['SUPABASE_SECRET_KEY'] }
+if (-not $prodUrl -or -not $prodKey) {
+    throw "Production Supabase URL/server credential was not found in the website .env.local."
+}
+$env:FIREBLADE_SUPABASE_URL = $prodUrl
+$env:FIREBLADE_SUPABASE_SERVER_KEY = $prodKey
+$env:FIREBLADE_PENDING_GROUP_CONFIG = Join-Path $secureDir "pending-report-group.json"
+$env:FIREBLADE_PENDING_REPORT_STATE_DIR = Join-Path $secureDir "pending-report-state"
+# FIREBLADE_SUPABASE_ENV_END
+$env:FIREBLADE_GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON =
+    Get-Content (Join-Path $secureDir "google_service_account.json") -Raw
+
+$env:FIREBLADE_MEDIA_ALLOWED_HOSTS =
+    "iveupumupvwabmvrnxlw.supabase.co,jchjxkbitapilacrkjsm.supabase.co"
+
+$env:FIREBLADE_WWEBJS_AUTH_PATH = ".wwebjs_auth"
+$env:PUPPETEER_SKIP_DOWNLOAD = "true"
+$env:PORT = "3100"
+
+$nodePath = "$env:ProgramFiles\nodejs\node.exe"
+$serverPath = Join-Path $bridgeDir "server.js"
+
+Set-Location $bridgeDir
+
+$proc = Start-Process `
+    -FilePath $nodePath `
+    -ArgumentList "`"$serverPath`"" `
+    -WorkingDirectory $bridgeDir `
+    -PassThru `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $logDir "bridge-output.log") `
+    -RedirectStandardError (Join-Path $logDir "bridge-error.log")
+
+$ready = $false
+
+for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Seconds 1
+
+    if ($proc.HasExited) {
+        throw "Fireblade WhatsApp Bridge exited before becoming ready."
+    }
+
+    try {
+        $health = Invoke-RestMethod `
+            -Uri "http://127.0.0.1:3100/health" `
+            -Headers @{ "X-Fireblade-Bridge-Key" = $env:FIREBLADE_WHATSAPP_BRIDGE_KEY } `
+            -TimeoutSec 2
+
+        if ($health.ok) {
+            $ready = $true
+            break
+        }
+    }
+    catch {}
+}
+
+if (-not $ready) {
+    throw "Fireblade WhatsApp Bridge did not become ready within 60 seconds."
+}
+
+Get-ChildItem (Join-Path $bridgeDir ".wwebjs_auth") `
+    -Directory `
+    -Filter "session-*" `
+    -ErrorAction SilentlyContinue |
+ForEach-Object {
+
+    $sessionKey = $_.Name -replace '^session-', ''
+
+    try {
+        Invoke-RestMethod `
+            -Method Post `
+            -Uri "http://127.0.0.1:3100/sessions/$sessionKey/start" `
+            -Headers @{ "X-Fireblade-Bridge-Key" = $env:FIREBLADE_WHATSAPP_BRIDGE_KEY } `
+            -TimeoutSec 120 |
+            Out-Null
+
+        Add-Content `
+            (Join-Path $logDir "session-autostart.log") `
+            "$(Get-Date -Format s) STARTED $sessionKey"
+    }
+    catch {
+        Add-Content `
+            (Join-Path $logDir "session-autostart.log") `
+            "$(Get-Date -Format s) FAILED $sessionKey : $($_.Exception.Message)"
+    }
+}
+
+Wait-Process -Id $proc.Id

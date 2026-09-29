@@ -1,0 +1,40 @@
+﻿# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Dependencies / generated output
+node_modules/
+.next/
+.vercel/
+dist/
+build/
+coverage/
+
+# WhatsApp sessions
+.wwebjs_auth/
+.wwebjs_cache/
+sessions/
+session/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# Cloudflare credentials
+**/.cloudflared/
+**/cert.pem
+**/token
+
+# Fireblade private/runtime data
+WhatsApp_Bridge/secure/
+WhatsApp_Bridge/logs/
+
+# Generated TypeScript cache
+*.tsbuildinfo

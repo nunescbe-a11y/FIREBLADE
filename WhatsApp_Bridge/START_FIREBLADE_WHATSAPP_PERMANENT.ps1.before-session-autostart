@@ -1,0 +1,21 @@
+﻿$ErrorActionPreference = "Stop"
+
+$bridgeDir = "F:\FIREBLADE_GEN2_WHATSAPP_REBUILD\WhatsApp_Bridge"
+$secureDir = Join-Path $bridgeDir "secure"
+
+$env:FIREBLADE_WHATSAPP_BRIDGE_KEY =
+    (Get-Content (Join-Path $secureDir "bridge.key") -Raw).Trim()
+
+$env:FIREBLADE_GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON =
+    Get-Content (Join-Path $secureDir "google_service_account.json") -Raw
+
+$env:FIREBLADE_MEDIA_ALLOWED_HOSTS =
+    "iveupumupvwabmvrnxlw.supabase.co,jchjxkbitapilacrkjsm.supabase.co"
+
+$env:FIREBLADE_WWEBJS_AUTH_PATH = ".wwebjs_auth"
+$env:PUPPETEER_SKIP_DOWNLOAD = "true"
+$env:PORT = "3100"
+
+Set-Location $bridgeDir
+
+& "$env:ProgramFiles\nodejs\node.exe" "server.js"

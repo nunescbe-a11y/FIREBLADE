@@ -1,0 +1,30 @@
+{
+  "name": "fireblade-web",
+  "version": "2.1.5",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "test:status": "node --experimental-strip-types --test tests/device-status.test.mjs",
+    "test:access": "node tests/access.test.mjs",
+    "test": "npm run test:static && npm run test:status && npm run test:pending",
+    "test:static": "node --test tests/gen2-static.test.mjs",
+    "check": "npm run lint && npm run test",
+    "test:production": "node tests/access.test.mjs",
+    "test:pending": "node --experimental-strip-types --test tests/pending-call-report.test.mjs"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "next": "16.1.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.8.3"
+  }
+}

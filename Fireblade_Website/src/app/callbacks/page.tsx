@@ -1,0 +1,2 @@
+import {redirect} from 'next/navigation';import {getSession} from '@/lib/auth';import AppShell from '@/components/AppShell';import CallbacksClient from '@/components/CallbacksClient';
+export default async function Page(){const user=await getSession();if(!user)redirect('/login');if(user.force_password_change)redirect('/account/password');return <AppShell user={user}><CallbacksClient user={user}/></AppShell>}

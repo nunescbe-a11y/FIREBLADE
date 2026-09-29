@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {deviceStatus,FRESH_MS} from '../src/lib/device-status.ts';
+const now=Date.parse('2026-09-04T12:00:00Z');
+const iso=age=>new Date(now-age).toISOString();
+const heartbeat={heartbeat_at:iso(0),received_at:iso(0),event_type:'HEARTBEAT',source_verified:true,shutdown_confirmed_at:null,mobile_data_state:'OFF',internet_available:true};
+const pending={request_id:'new-request',device_id:'MKT-001',requested_at:iso(5000),expires_at:iso(-85000),responded_at:null,status:'PENDING'};
+test('Wi-Fi internet confirms a working phone when cellular setting is off',()=>{const s=deviceStatus(heartbeat,null,now);assert.equal(s.state,'ON CONFIRMED');assert.equal(s.internet_status,'ON');assert.equal(s.mobile_data_status,'OFF');assert.equal(s.phone_working,'YES');});
+test('old heartbeat never means phone off',()=>{const s=deviceStatus({...heartbeat,received_at:iso(FRESH_MS+1)},null,now);assert.equal(s.state,'NO RECENT SIGNAL');assert.equal(s.phone_working,'UNKNOWN');assert.equal(s.internet_status,'UNKNOWN');});
+test('manual timeout means no response, not off',()=>{const s=deviceStatus(null,{...pending,expires_at:iso(1)},now);assert.equal(s.state,'NO RESPONSE');assert.equal(s.phone_status,'UNKNOWN');});
+test('pending check cannot be answered by unrelated cached health',()=>assert.equal(deviceStatus(heartbeat,pending,now).check_status,'PENDING'));
+test('fresh health can prove ON while manual request remains unanswered',()=>{const s=deviceStatus(heartbeat,{...pending,expires_at:iso(1)},now);assert.equal(s.state,'ON CONFIRMED');assert.equal(s.check_status,'NO RESPONSE');});
+test('verified shutdown remains OFF until newer verified evidence replaces it',()=>{const h={...heartbeat,event_type:'SHUTDOWN',received_at:iso(FRESH_MS+600000),heartbeat_at:iso(FRESH_MS+600000),shutdown_confirmed_at:iso(FRESH_MS+600000)};assert.equal(deviceStatus(h,null,now).state,'OFF CONFIRMED');assert.equal(deviceStatus({...h,source_verified:false},null,now).state,'NO RECENT SIGNAL');});
+test('an old shutdown marker cannot override a later heartbeat',()=>assert.equal(deviceStatus({...heartbeat,shutdown_confirmed_at:iso(0)},null,now).state,'ON CONFIRMED'));
+test('bad or future receipt time is unknown',()=>{for(const time of ['invalid',iso(-60000)])assert.equal(deviceStatus({...heartbeat,received_at:time},null,now).phone_working,'UNKNOWN');});
+test('no data remains unknown',()=>assert.equal(deviceStatus(null,null,now).state,'UNKNOWN'));
+test('old response does not remain evidence of a currently working phone',()=>{const s=deviceStatus({...heartbeat,received_at:iso(FRESH_MS+1)},{...pending,status:'RESPONDED',responded_at:iso(FRESH_MS+1)},now);assert.equal(s.state,'NO RECENT SIGNAL');});

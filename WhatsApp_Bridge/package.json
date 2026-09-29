@@ -1,0 +1,16 @@
+{
+  "name": "fireblade-gen2-whatsapp-bridge",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "patch:wwebjs": "node scripts/patch-wwebjs-navigation.cjs",
+    "postinstall": "node scripts/patch-wwebjs-navigation.cjs"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "qrcode": "1.5.4",
+    "whatsapp-web.js": "1.34.7"
+  }
+}

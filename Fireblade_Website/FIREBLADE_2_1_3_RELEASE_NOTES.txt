@@ -1,0 +1,17 @@
+Fireblade Web 2.1.3
+
+1. Recover accidental Disqualified actions
+- Marketing employee can Recover a disqualified call.
+- Recover returns the call to Details Pending and restores Add Details | Disqualified.
+- DISQUALIFIED and RECOVERED remain in the enquiry audit history.
+
+2. Callback accuracy for OEM call-log type OTHER_100
+- A later OTHER_100 event resolves a missed call only when it belongs to the same employee and customer number and has duration > 0.
+- Verified production example: MKT-010 / EMP-008 / 9600366022, missed 21-Sep-2026 11:03:00, callback 11:03:38 for 185 seconds.
+
+3. Common Information Sent remarks
+- Quotation, Catalogue and Image keep separate Yes/No choices.
+- One Common Remarks field replaces the three separate remark fields.
+- Common Remarks is mandatory when any of the three choices is No.
+
+Production database migrations are included in fireblade_gen2_1_3_recover_callback_common_remarks.sql.

@@ -1,0 +1,2 @@
+import { redirect } from "next/navigation";import { getSession } from "@/lib/auth";import AppShell from "@/components/AppShell";import ChangePasswordClient from "@/components/ChangePasswordClient";
+export default async function Page(){const user=await getSession();if(!user)redirect('/login');return <AppShell user={user}><div className="page-header"><div><p className="eyebrow">Account security</p><h1>Change Password</h1></div></div><ChangePasswordClient/></AppShell>}

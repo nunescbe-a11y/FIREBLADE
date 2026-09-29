@@ -1,0 +1,27 @@
+FIREBLADE WEB V3 - EXISTING DEPLOYMENT UPDATE
+
+1. Read ../README_FIRST.txt and apply the new database migration first.
+2. Keep your existing .env.local for local testing; never put it in source control.
+3. Update your EXISTING website project using its normal deployment workflow.
+4. Keep the existing domain, authentication settings and Supabase project.
+5. Add these Production environment variables in Vercel:
+
+SUPABASE_URL
+SUPABASE_SECRET_KEY
+FIREBLADE_SESSION_SECRET
+FIREBLADE_ADMIN_USER
+FIREBLADE_ADMIN_PASSWORD
+FIREBLADE_MARKETING_USER
+FIREBLADE_MARKETING_PASSWORD
+FIREBLADE_MD_USER
+FIREBLADE_MD_PASSWORD
+FIREBASE_SERVICE_ACCOUNT_JSON (for remote FCM delivery; see ../FIREBASE_SETUP.txt)
+
+6. Test login, device status, department assignment and Check Now after deployment.
+   No live deployment was performed when preparing this package.
+
+IMPORTANT:
+- Do not paste SUPABASE_SECRET_KEY into browser/frontend code.
+- Do not commit .env.local.
+- Do not change or delete the existing call collector Vercel API project.
+- Fireblade is a separate website that reads the same Supabase project.

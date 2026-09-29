@@ -1,0 +1,43 @@
+FIREBLADE WEB 2.1.2 - DISQUALIFIED CALL HANDLING
+================================================
+
+Implemented
+-----------
+1. Marketing employee My Calls UI:
+   - Removed the per-call "Send Product" button from the Calls UI.
+   - Added a "Disqualified" button beside Add Details for pending calls.
+   - Confirmation is required before marking a call Disqualified.
+   - A saved Disqualified call is shown as a Disqualified status and cannot be edited as a normal enquiry.
+
+2. Backend behavior:
+   - Existing WhatsApp / Send Product backend routes and product-sharing code are preserved.
+   - New POST /api/enquiries/disqualify endpoint is Marketing-only and employee-owned.
+   - Database RPC records DISQUALIFIED as a completed/handled enquiry outcome.
+   - No contact or Information Sent checklist is required for Disqualified.
+   - Audit history records the employee and timestamp.
+
+3. Counts / visibility:
+   - Because a Disqualified call receives an enquiry_id with COMPLETED status, it no longer counts as Details Pending.
+   - It is included in Completed/handled call counts that are based on enquiry_id.
+   - It does NOT alter the original incoming/missed call history.
+   - It does NOT artificially mark a missed call as callback-resolved.
+
+4. Management/Admin Information Sent:
+   - Disqualified calls are excluded from the Information Sent report.
+   - They are excluded from the report count, screen rows, CSV and Excel because all use the same report RPC.
+
+Database
+--------
+Production Supabase already received the equivalent database migration during this change.
+For another environment, run:
+  fireblade_gen2_1_2_disqualified_calls.sql
+before deploying this website version.
+
+Verification performed
+----------------------
+- Focused Fireblade static tests for the new UI/backend/report behavior: PASS (2/2).
+- TypeScript syntactic transpile checks for all modified TS/TSX files: PASS.
+- Production database RPC/report behavior was transaction-tested with no test rows retained.
+- Existing production Information Sent report remained at 4 rows for 2026-09-21 during verification.
+
+A full local npm/Next build could not be completed in the ChatGPT container because npm dependency download was unavailable/too slow. Run npm ci + npm run check + npm run build on the deployment PC before production deploy.

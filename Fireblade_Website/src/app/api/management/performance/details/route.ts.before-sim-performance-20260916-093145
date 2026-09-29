@@ -1,0 +1,34 @@
+import { NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { supabaseRest } from "@/lib/supabase";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CALL_METRICS = new Set(["TOTAL", "ANSWERED", "MISSED"]);
+const CALLBACK_METRICS = new Set(["CALLED_BACK", "PENDING"]);
+function dateEpoch(date: string) { return Date.parse(`${date}T00:00:00+05:30`); }
+
+export async function GET(request: Request) {
+  const user = await getSession();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "ADMIN" && user.role !== "MANAGEMENT") return NextResponse.json({ error: "Management access required" }, { status: 403 });
+  const url = new URL(request.url);
+  const employee = (url.searchParams.get("employee") || "").trim().toUpperCase();
+  const metric = (url.searchParams.get("metric") || "").trim().toUpperCase();
+  const from = (url.searchParams.get("from") || "").trim();
+  const to = (url.searchParams.get("to") || "").trim();
+  if (!employee || (!CALL_METRICS.has(metric) && !CALLBACK_METRICS.has(metric)) || !DATE_RE.test(from) || !DATE_RE.test(to)) return NextResponse.json({ error: "Invalid detail request" }, { status: 400 });
+  const start = dateEpoch(from), end = dateEpoch(to) + 86_400_000;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 366 * 86_400_000) return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
+  try {
+    if (CALL_METRICS.has(metric)) {
+      const direction = metric === "ANSWERED" ? "&direction=eq.INCOMING_ANSWERED" : metric === "MISSED" ? "&direction=eq.INCOMING_MISSED" : "&direction=in.(INCOMING_ANSWERED,INCOMING_MISSED)";
+      const rows = await supabaseRest(`fireblade_call_events?select=call_id,device_id,phone_number_raw,phone_number_normalized,contact_name,direction,started_at_epoch_ms,duration_seconds,employee_id,employee_name,department_name&employee_id=eq.${encodeURIComponent(employee)}&started_at_epoch_ms=gte.${start}&started_at_epoch_ms=lt.${end}${direction}&order=started_at_epoch_ms.desc&limit=2000`);
+      return NextResponse.json({ kind: "CALL", metric, rows });
+    }
+    const status = metric === "CALLED_BACK" ? "RESOLVED" : "PENDING";
+    const rows = await supabaseRest(`fireblade_missed_call_tasks?select=missed_call_id,employee_id,employee_name,department_name,missed_device_id,phone_number_raw,phone_number_normalized,missed_at_epoch_ms,callback_call_id,callback_device_id,callback_at_epoch_ms,callback_duration_seconds,callback_status,callback_minutes&employee_id=eq.${encodeURIComponent(employee)}&missed_at_epoch_ms=gte.${start}&missed_at_epoch_ms=lt.${end}&callback_status=eq.${status}&order=missed_at_epoch_ms.desc&limit=2000`);
+    return NextResponse.json({ kind: "CALLBACK", metric, rows });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load performance details" }, { status: 500 });
+  }
+}
