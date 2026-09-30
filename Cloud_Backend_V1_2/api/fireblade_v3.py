@@ -204,15 +204,65 @@ def install_routes(app, db, health_model):
         if not is_metadata_only and not file:
             raise HTTPException(400, "Audio file is required for this recording source")
             
+        # Resolve call_id
+        call_id = None
+        if source_call_id:
+            _, calls = db("GET", f"phase0_calls?select=id&device_id=eq.{quote(device_id, safe='')}&source_call_id=eq.{quote(source_call_id, safe='')}&limit=1")
+            if calls:
+                call_id = calls[0]["id"]
+                
+        # Resolve employee_id unambiguously using recording_started_at_epoch_ms
+        employee_id = None
+        started_iso = datetime.fromtimestamp(started_at_epoch_ms / 1000.0, tz=timezone.utc).isoformat()
+        _, assignments = db("GET", f"fireblade_device_assignments?select=employee_id&device_id=eq.{quote(device_id, safe='')}&assigned_from=lte.{quote(started_iso, safe='')}&or=(assigned_until.is.null,assigned_until.gte.{quote(started_iso, safe='')})")
+        if assignments and len(assignments) == 1:
+            employee_id = assignments[0].get("employee_id")
+            
         # Idempotency pre-check
-        _, existing = db("GET", f"fireblade_call_recordings?select=device_id,sha256&recording_id=eq.{quote(recording_id, safe='')}&limit=1")
+        _, existing = db("GET", f"fireblade_call_recordings?select=device_id,sha256,upload_status&recording_id=eq.{quote(recording_id, safe='')}&limit=1")
         if existing:
             row = existing[0]
             if row.get("device_id") != device_id:
                 raise HTTPException(409, "Duplicate recording ID with different device")
             if not is_metadata_only and row.get("sha256") != sha256:
                 raise HTTPException(409, "Duplicate recording ID with different checksum")
-            return {"ok": True, "recording_id": recording_id}
+            if row.get("upload_status") == "SUCCESS":
+                return {"ok": True, "recording_id": recording_id}
+        else:
+            # Create reserved row
+            record = {
+                "recording_id": recording_id,
+                "call_id": call_id,
+                "employee_id": employee_id,
+                "device_id": device_id,
+                "source_call_id": source_call_id,
+                "phone_number": phone_number,
+                "direction": direction,
+                "recording_started_at_epoch_ms": started_at_epoch_ms,
+                "recording_ended_at_epoch_ms": ended_at_epoch_ms,
+                "duration_ms": duration_ms,
+                "recording_source": recording_source,
+                "recording_status": recording_source if is_metadata_only else "PENDING",
+                "audio_scope": audio_scope,
+                "capability": capability,
+                "employee_notice_status": employee_notice_status,
+                "customer_consent_status": customer_consent_status,
+                "consent_basis": consent_basis,
+                "mime_type": mime_type,
+                "file_size_bytes": 0,
+                "sha256": sha256 if not is_metadata_only else None,
+                "storage_bucket": None,
+                "storage_object_path": None,
+                "upload_status": "PENDING",
+                "uploaded_at": None,
+                "last_error": None
+            }
+            try:
+                db("POST", "fireblade_call_recordings", record)
+            except HTTPException as e:
+                if "duplicate key value violates unique constraint" in str(e.detail):
+                    raise HTTPException(409, "Duplicate recording")
+                raise
         
         if not is_metadata_only:
             if not sha256:
@@ -242,68 +292,45 @@ def install_routes(app, db, health_model):
                     **({"Authorization": f"Bearer {key}"} if key.startswith("eyJ") else {})
                 }
             )
+            
+            storage_success = False
+            last_error = None
             try:
                 with urllib.request.urlopen(req, timeout=30):
-                    pass
+                    storage_success = True
             except urllib.error.HTTPError as e:
-                raise HTTPException(502, f"Failed to store audio file HTTP {e.code}")
-            except Exception:
-                raise HTTPException(502, "Failed to store audio file")
-            
-            storage_bucket = "fireblade-recordings"
-            storage_object_path = storage_path
-            file_size_bytes = len(content)
-        else:
-            storage_bucket = None
-            storage_object_path = None
-            file_size_bytes = 0
-            
-        # Resolve call_id
-        call_id = None
-        if source_call_id:
-            _, calls = db("GET", f"phase0_calls?select=id&device_id=eq.{quote(device_id, safe='')}&source_call_id=eq.{quote(source_call_id, safe='')}&limit=1")
-            if calls:
-                call_id = calls[0]["id"]
+                try:
+                    resp_body = e.read().decode()
+                    if e.code in (400, 409) and ("Duplicate" in resp_body or "AlreadyExists" in resp_body or "Already Exists" in resp_body):
+                        storage_success = True
+                    else:
+                        last_error = f"HTTP {e.code}"
+                except Exception:
+                    last_error = f"HTTP {e.code}"
+            except Exception as e:
+                last_error = str(e)
                 
-        # Resolve employee_id using recording_started_at_epoch_ms
-        employee_id = None
-        started_iso = datetime.fromtimestamp(started_at_epoch_ms / 1000.0, tz=timezone.utc).isoformat()
-        _, assignments = db("GET", f"fireblade_device_assignments?select=employee_id&device_id=eq.{quote(device_id, safe='')}&assigned_from=lte.{quote(started_iso, safe='')}&or=(assigned_until.is.null,assigned_until.gte.{quote(started_iso, safe='')})&limit=1")
-        if assignments:
-            employee_id = assignments[0].get("employee_id")
-            
-        record = {
-            "recording_id": recording_id,
-            "call_id": call_id,
-            "employee_id": employee_id,
-            "device_id": device_id,
-            "source_call_id": source_call_id,
-            "phone_number": phone_number,
-            "direction": direction,
-            "recording_started_at_epoch_ms": started_at_epoch_ms,
-            "recording_ended_at_epoch_ms": ended_at_epoch_ms,
-            "duration_ms": duration_ms,
-            "recording_source": recording_source,
-            "recording_status": "UPLOADED" if not is_metadata_only else recording_source,
-            "audio_scope": audio_scope,
-            "capability": capability,
-            "employee_notice_status": employee_notice_status,
-            "customer_consent_status": customer_consent_status,
-            "consent_basis": consent_basis,
-            "mime_type": mime_type,
-            "file_size_bytes": file_size_bytes,
-            "sha256": sha256,
-            "storage_bucket": storage_bucket,
-            "storage_object_path": storage_object_path,
-            "upload_status": "SUCCESS",
-            "uploaded_at": utcnow().isoformat()
-        }
-        
-        try:
-            db("POST", "fireblade_call_recordings?on_conflict=recording_id", record, "resolution=merge-duplicates,return=minimal")
-        except HTTPException as e:
-            if "duplicate key value violates unique constraint" in str(e.detail):
-                raise HTTPException(409, "Duplicate recording")
-            raise
-            
+            if storage_success:
+                db("PATCH", f"fireblade_call_recordings?recording_id=eq.{quote(recording_id, safe='')}", {
+                    "storage_bucket": "fireblade-recordings",
+                    "storage_object_path": storage_path,
+                    "file_size_bytes": len(content),
+                    "recording_status": "UPLOADED",
+                    "upload_status": "SUCCESS",
+                    "uploaded_at": utcnow().isoformat(),
+                    "last_error": None
+                })
+            else:
+                db("PATCH", f"fireblade_call_recordings?recording_id=eq.{quote(recording_id, safe='')}", {
+                    "upload_status": "FAILED",
+                    "last_error": last_error
+                })
+                raise HTTPException(502, f"Failed to store audio file: {last_error}")
+        else:
+            db("PATCH", f"fireblade_call_recordings?recording_id=eq.{quote(recording_id, safe='')}", {
+                "upload_status": "SUCCESS",
+                "uploaded_at": utcnow().isoformat(),
+                "last_error": None
+            })
+
         return {"ok": True, "recording_id": recording_id}

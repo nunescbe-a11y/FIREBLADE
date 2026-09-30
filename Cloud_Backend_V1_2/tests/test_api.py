@@ -162,7 +162,7 @@ class DeviceApiTests(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
         
         # Check what was passed to db
-        stored = [c for c in self.calls if c[1].startswith('fireblade_call_recordings?')]
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertIsNone(stored[-1][2]['source_call_id'])
 
     def test_recording_upload_storage_400_not_duplicate_fails(self):
@@ -211,7 +211,7 @@ class DeviceApiTests(unittest.TestCase):
                 r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_call_res', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id':'call_999'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r.status_code, 200, r.text)
                 
-        stored = [c for c in self.calls if 'fireblade_call_recordings?' in c[1]]
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertEqual(stored[-1][2]['call_id'], 12345)
         self.assertEqual(stored[-1][2]['employee_id'], 'EMP-001')
 
@@ -226,7 +226,7 @@ class DeviceApiTests(unittest.TestCase):
         
         def mock_db_idempotency(method, path, *args, **kwargs):
             if 'fireblade_call_recordings?' in path and method == 'GET':
-                return (200, [{'device_id':'MKT-001', 'sha256':sha}])
+                return (200, [{'device_id':'MKT-001', 'sha256':sha, 'upload_status': 'SUCCESS'}])
             return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
             
         with patch('urllib.request.urlopen') as mock_url:
@@ -242,7 +242,7 @@ class DeviceApiTests(unittest.TestCase):
         
         def mock_db_idempotency_diff_sha(method, path, *args, **kwargs):
             if 'fireblade_call_recordings?' in path and method == 'GET':
-                return (200, [{'device_id':'MKT-001', 'sha256':'different_sha'}])
+                return (200, [{'device_id':'MKT-001', 'sha256':'different_sha', 'upload_status': 'SUCCESS'}])
             return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
             
         with patch.object(index, '_supabase', side_effect=mock_db_idempotency_diff_sha):
@@ -256,11 +256,55 @@ class DeviceApiTests(unittest.TestCase):
         
         def mock_db_idempotency_diff_device(method, path, *args, **kwargs):
             if 'fireblade_call_recordings?' in path and method == 'GET':
-                return (200, [{'device_id':'MKT-999', 'sha256':sha}])
+                return (200, [{'device_id':'MKT-999', 'sha256':sha, 'upload_status': 'SUCCESS'}])
             return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
             
         with patch.object(index, '_supabase', side_effect=mock_db_idempotency_diff_device):
             r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_idem3', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
             self.assertEqual(r.status_code, 409)
+
+    def test_recording_upload_idempotent_retry_recovers_from_pending(self):
+        import hashlib, urllib.error
+        content = b'test audio'
+        sha = hashlib.sha256(content).hexdigest()
+        
+        def mock_db_idempotency_pending(method, path, *args, **kwargs):
+            if 'fireblade_call_recordings?' in path and method == 'GET':
+                return (200, [{'device_id':'MKT-001', 'sha256':sha, 'upload_status': 'PENDING'}])
+            self.calls.append((method, path, args[0] if args else None))
+            return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
+            
+        class MockResponse:
+            def read(self): return b'{"statusCode": "400", "error": "Duplicate", "message": "The resource already exists"}'
+        err = urllib.error.HTTPError("url", 400, "Bad Request", {}, MockResponse())
+
+        with patch('urllib.request.urlopen', side_effect=err):
+            with patch.object(index, '_supabase', side_effect=mock_db_idempotency_pending):
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_pending_retry', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                self.assertEqual(r.status_code, 200, r.text)
+
+        stored = [c for c in self.calls if 'recording_id=eq.rec_pending_retry' in c[1]]
+        self.assertEqual(stored[-1][0], 'PATCH')
+        self.assertEqual(stored[-1][2]['upload_status'], 'SUCCESS')
+
+    def test_recording_upload_overlapping_assignments_yields_null(self):
+        import hashlib
+        content = b'test audio'
+        sha = hashlib.sha256(content).hexdigest()
+        
+        def mock_db_ambiguous(method, path, *args, **kwargs):
+            if 'fireblade_device_assignments?' in path:
+                return (200, [{'employee_id': 'EMP-001'}, {'employee_id': 'EMP-002'}])
+            if 'fireblade_call_recordings?' in path and method == 'GET': return (200, [])
+            self.calls.append((method, path, args[0] if args else None))
+            return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
+            
+        with patch('urllib.request.urlopen'):
+            with patch.object(index, '_supabase', side_effect=mock_db_ambiguous):
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_ambiguous', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                self.assertEqual(r.status_code, 200, r.text)
+                
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+        self.assertIsNone(stored[-1][2]['employee_id'])
 
 if __name__=='__main__':unittest.main()
