@@ -57,6 +57,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                             direction = direction
                         )
                         com.nunes.callcollector.data.AppDatabase.get(context).recordingDao().insert(entity)
+                        com.nunes.callcollector.AutomationScheduler.enqueueSync(context)
                     } finally {
                         pendingResult.finish()
                     }

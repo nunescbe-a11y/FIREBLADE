@@ -193,13 +193,24 @@ def install_routes(app, db, health_model):
     ):
         authorize(db, device_id, x_fireblade_token)
         
-        is_metadata_only = recording_source in ("OS_BLOCKED", "UNSUPPORTED") or not file
+        if source_call_id is not None and source_call_id.strip() == "":
+            source_call_id = None
+        if phone_number is not None and phone_number.strip() == "":
+            phone_number = None
+        if direction is not None and direction.strip() == "":
+            direction = None
+            
+        is_metadata_only = recording_source in ("OS_BLOCKED", "UNSUPPORTED", "FAILED_BLOCKED_BY_OS", "FAILED_UNSUPPORTED")
+        if not is_metadata_only and not file:
+            raise HTTPException(400, "Audio file is required for this recording source")
         
         if not is_metadata_only:
             if not sha256:
                 raise HTTPException(400, "sha256 is required for audio uploads")
             
             content = file.file.read()
+            if not content:
+                raise HTTPException(400, "Audio file payload is empty")
             if len(content) > 50 * 1024 * 1024:
                 raise HTTPException(413, "File too large")
             
@@ -208,7 +219,7 @@ def install_routes(app, db, health_model):
                 raise HTTPException(400, "Checksum mismatch")
                 
             storage_path = f"{device_id}/{recording_id[:2]}/{recording_id}.mp4"
-            import os, urllib.request
+            import os, urllib.request, json
             base = os.environ.get("SUPABASE_URL", "http://localhost").rstrip("/")
             key = os.environ.get("SUPABASE_SECRET_KEY", "")
             req = urllib.request.Request(
@@ -225,8 +236,20 @@ def install_routes(app, db, health_model):
                 with urllib.request.urlopen(req, timeout=30):
                     pass
             except urllib.error.HTTPError as e:
-                if e.code != 400: # 400 often means duplicate in Supabase Storage for POST
-                    raise HTTPException(502, "Failed to store audio file")
+                if e.code in (400, 409):
+                    try:
+                        error_text = e.read().decode('utf-8')
+                        err_json = json.loads(error_text)
+                        msg = err_json.get("message", err_json.get("error", "")).lower()
+                        if "duplicate" in msg or "already exists" in msg or "alreadyexists" in msg:
+                            pass # idempotent success
+                        else:
+                            raise HTTPException(502, f"Failed to store audio file: {msg}")
+                    except Exception as parse_e:
+                        if isinstance(parse_e, HTTPException): raise
+                        raise HTTPException(502, "Failed to store audio file")
+                else:
+                    raise HTTPException(502, f"Failed to store audio file HTTP {e.code}")
             except Exception:
                 raise HTTPException(502, "Failed to store audio file")
             
@@ -238,8 +261,23 @@ def install_routes(app, db, health_model):
             storage_object_path = None
             file_size_bytes = 0
             
+        # Resolve call_id
+        call_id = None
+        if source_call_id:
+            _, calls = db("GET", f"phase0_calls?select=id&device_id=eq.{quote(device_id, safe='')}&source_call_id=eq.{quote(source_call_id, safe='')}&limit=1")
+            if calls:
+                call_id = calls[0]["id"]
+                
+        # Resolve employee_id
+        employee_id = None
+        _, assignments = db("GET", f"fireblade_device_assignments?select=employee_id&device_id=eq.{quote(device_id, safe='')}&limit=1")
+        if assignments:
+            employee_id = assignments[0].get("employee_id")
+            
         record = {
             "recording_id": recording_id,
+            "call_id": call_id,
+            "employee_id": employee_id,
             "device_id": device_id,
             "source_call_id": source_call_id,
             "phone_number": phone_number,

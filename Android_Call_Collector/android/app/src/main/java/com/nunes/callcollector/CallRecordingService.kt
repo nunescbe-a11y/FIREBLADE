@@ -131,8 +131,14 @@ class CallRecordingService : Service() {
             isRecording = true
             startTimeMs = System.currentTimeMillis()
         } catch (e: Exception) {
-            // Fallback to MIC
-            mediaRecorder?.reset()
+            // Fallback to MIC safely by releasing and recreating
+            try { mediaRecorder?.release() } catch (ex: Exception) {}
+            mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(this)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }
             try {
                 mediaRecorder?.setAudioSource(MediaRecorder.AudioSource.MIC)
                 mediaRecorder?.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
@@ -157,6 +163,7 @@ class CallRecordingService : Service() {
     private fun stopRecording() {
         if (!isRecording) return
         val endTimeMs = System.currentTimeMillis()
+        var stopFailed = false
         try {
             mediaRecorder?.apply {
                 stop()
@@ -164,6 +171,7 @@ class CallRecordingService : Service() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            stopFailed = true
         }
         isRecording = false
         mediaRecorder = null
@@ -171,7 +179,31 @@ class CallRecordingService : Service() {
         val duration = endTimeMs - startTimeMs
         val file = currentFile
 
-        if (file != null && file.exists()) {
+        if (stopFailed) {
+            serviceScope.launch {
+                val entity = RecordingEntity(
+                    sourceCallId = null,
+                    sha256 = null,
+                    filePath = null,
+                    fileSizeBytes = 0,
+                    durationMs = duration,
+                    recordingSource = "FAILED_DURING_STOP",
+                    audioScope = "NONE",
+                    capability = capability,
+                    employeeNoticeStatus = "NOT_CAPTURED",
+                    customerConsentStatus = "UNKNOWN",
+                    consentBasis = "NOT_RECORDED",
+                    startedAtEpochMs = startTimeMs,
+                    endedAtEpochMs = endTimeMs,
+                    uploadStatus = "FAILED_UNSUPPORTED",
+                    phoneNumber = phoneNumber,
+                    direction = direction
+                )
+                AppDatabase.get(applicationContext).recordingDao().insert(entity)
+                com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
+            }
+            cleanup()
+        } else if (file != null && file.exists()) {
             serviceScope.launch {
                 val sha256 = calculateSha256(file)
                 val entity = RecordingEntity(
@@ -223,6 +255,7 @@ class CallRecordingService : Service() {
                 direction = direction
             )
             AppDatabase.get(applicationContext).recordingDao().insert(entity)
+            com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
         }
     }
 
@@ -247,6 +280,7 @@ class CallRecordingService : Service() {
                 direction = direction
             )
             AppDatabase.get(applicationContext).recordingDao().insert(entity)
+            com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
         }
     }
 
