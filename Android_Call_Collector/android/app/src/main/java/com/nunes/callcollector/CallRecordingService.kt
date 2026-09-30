@@ -55,8 +55,7 @@ class CallRecordingService : Service() {
             direction = intent.getStringExtra("DIRECTION")
             startRecording()
         } else if (intent?.action == ACTION_STOP) {
-            stopRecording()
-            stopSelf()
+            stopRecording(shouldStopSelf = true)
         }
         return START_NOT_STICKY
     }
@@ -102,8 +101,7 @@ class CallRecordingService : Service() {
         } catch (e: Exception) {
             // Foreground service start restrictions on Android 12+
             e.printStackTrace()
-            recordBlockedByOs()
-            stopSelf()
+            recordBlockedByOs(shouldStopSelf = true)
             return
         }
 
@@ -153,15 +151,17 @@ class CallRecordingService : Service() {
                 startTimeMs = System.currentTimeMillis()
             } catch (e2: Exception) {
                 e2.printStackTrace()
-                recordUnsupported()
-                stopSelf()
+                recordUnsupported(shouldStopSelf = true)
                 return
             }
         }
     }
 
-    private fun stopRecording() {
-        if (!isRecording) return
+    private fun stopRecording(shouldStopSelf: Boolean = false) {
+        if (!isRecording) {
+            if (shouldStopSelf) stopSelf()
+            return
+        }
         val endTimeMs = System.currentTimeMillis()
         var stopFailed = false
         try {
@@ -178,109 +178,134 @@ class CallRecordingService : Service() {
 
         val duration = endTimeMs - startTimeMs
         val file = currentFile
+        currentFile = null
 
-        if (stopFailed) {
-            serviceScope.launch {
+        val context = applicationContext
+        val finalCapability = capability
+        val finalRecordingSource = recordingSource
+        val finalAudioScope = audioScope
+        val finalStartTime = startTimeMs
+        val finalPhoneNumber = phoneNumber
+        val finalDirection = direction
+
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            try {
+                if (stopFailed) {
+                    val entity = RecordingEntity(
+                        sourceCallId = null,
+                        sha256 = null,
+                        filePath = null,
+                        fileSizeBytes = 0,
+                        durationMs = duration,
+                        recordingSource = "FAILED_DURING_STOP",
+                        audioScope = "NONE",
+                        capability = finalCapability,
+                        employeeNoticeStatus = "NOT_CAPTURED",
+                        customerConsentStatus = "UNKNOWN",
+                        consentBasis = "NOT_RECORDED",
+                        startedAtEpochMs = finalStartTime,
+                        endedAtEpochMs = endTimeMs,
+                        uploadStatus = "FAILED_UNSUPPORTED",
+                        phoneNumber = finalPhoneNumber,
+                        direction = finalDirection
+                    )
+                    AppDatabase.get(context).recordingDao().insert(entity)
+                    com.nunes.callcollector.AutomationScheduler.enqueueSync(context)
+                    if (file?.exists() == true) file.delete()
+                } else if (file != null && file.exists()) {
+                    val sha256 = calculateSha256(file)
+                    val entity = RecordingEntity(
+                        sourceCallId = null,
+                        sha256 = sha256,
+                        filePath = file.absolutePath,
+                        fileSizeBytes = file.length(),
+                        durationMs = duration,
+                        recordingSource = finalRecordingSource,
+                        audioScope = finalAudioScope,
+                        capability = finalCapability,
+                        employeeNoticeStatus = "NOT_CAPTURED",
+                        customerConsentStatus = "UNKNOWN",
+                        consentBasis = "NOT_RECORDED",
+                        startedAtEpochMs = finalStartTime,
+                        endedAtEpochMs = endTimeMs,
+                        uploadStatus = "PENDING",
+                        phoneNumber = finalPhoneNumber,
+                        direction = finalDirection
+                    )
+                    AppDatabase.get(context).recordingDao().insert(entity)
+                    com.nunes.callcollector.AutomationScheduler.enqueueSync(context)
+                } else {
+                    if (file?.exists() == true) file.delete()
+                }
+            } finally {
+                if (shouldStopSelf) stopSelf()
+            }
+        }
+    }
+
+    private fun recordBlockedByOs(shouldStopSelf: Boolean = false) {
+        val context = applicationContext
+        val finalStartTime = startTimeMs
+        val finalPhoneNumber = phoneNumber
+        val finalDirection = direction
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            try {
                 val entity = RecordingEntity(
                     sourceCallId = null,
                     sha256 = null,
                     filePath = null,
                     fileSizeBytes = 0,
-                    durationMs = duration,
-                    recordingSource = "FAILED_DURING_STOP",
+                    durationMs = 0,
+                    recordingSource = "OS_BLOCKED",
                     audioScope = "NONE",
-                    capability = capability,
+                    capability = "NONE",
                     employeeNoticeStatus = "NOT_CAPTURED",
                     customerConsentStatus = "UNKNOWN",
                     consentBasis = "NOT_RECORDED",
-                    startedAtEpochMs = startTimeMs,
-                    endedAtEpochMs = endTimeMs,
-                    uploadStatus = "FAILED_UNSUPPORTED",
-                    phoneNumber = phoneNumber,
-                    direction = direction
+                    startedAtEpochMs = finalStartTime,
+                    endedAtEpochMs = finalStartTime,
+                    uploadStatus = "FAILED_BLOCKED_BY_OS",
+                    phoneNumber = finalPhoneNumber,
+                    direction = finalDirection
                 )
-                AppDatabase.get(applicationContext).recordingDao().insert(entity)
-                com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
+                AppDatabase.get(context).recordingDao().insert(entity)
+                com.nunes.callcollector.AutomationScheduler.enqueueSync(context)
+            } finally {
+                if (shouldStopSelf) stopSelf()
             }
-            cleanup()
-        } else if (file != null && file.exists()) {
-            serviceScope.launch {
-                val sha256 = calculateSha256(file)
+        }
+    }
+
+    private fun recordUnsupported(shouldStopSelf: Boolean = false) {
+        val context = applicationContext
+        val finalStartTime = startTimeMs
+        val finalPhoneNumber = phoneNumber
+        val finalDirection = direction
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            try {
                 val entity = RecordingEntity(
                     sourceCallId = null,
-                    sha256 = sha256,
-                    filePath = file.absolutePath,
-                    fileSizeBytes = file.length(),
-                    durationMs = duration,
-                    recordingSource = recordingSource,
-                    audioScope = audioScope,
-                    capability = capability,
+                    sha256 = null,
+                    filePath = null,
+                    fileSizeBytes = 0,
+                    durationMs = 0,
+                    recordingSource = "UNSUPPORTED",
+                    audioScope = "NONE",
+                    capability = "NONE",
                     employeeNoticeStatus = "NOT_CAPTURED",
                     customerConsentStatus = "UNKNOWN",
                     consentBasis = "NOT_RECORDED",
-                    startedAtEpochMs = startTimeMs,
-                    endedAtEpochMs = endTimeMs,
-                    uploadStatus = "PENDING",
-                    phoneNumber = phoneNumber,
-                    direction = direction
+                    startedAtEpochMs = finalStartTime,
+                    endedAtEpochMs = finalStartTime,
+                    uploadStatus = "FAILED_UNSUPPORTED",
+                    phoneNumber = finalPhoneNumber,
+                    direction = finalDirection
                 )
-                AppDatabase.get(applicationContext).recordingDao().insert(entity)
-                
-                // Enqueue upload
-                com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
+                AppDatabase.get(context).recordingDao().insert(entity)
+                com.nunes.callcollector.AutomationScheduler.enqueueSync(context)
+            } finally {
+                if (shouldStopSelf) stopSelf()
             }
-        } else {
-            cleanup()
-        }
-    }
-
-    private fun recordBlockedByOs() {
-        serviceScope.launch {
-            val entity = RecordingEntity(
-                sourceCallId = null,
-                sha256 = null,
-                filePath = null,
-                fileSizeBytes = 0,
-                durationMs = 0,
-                recordingSource = "OS_BLOCKED",
-                audioScope = "NONE",
-                capability = "NONE",
-                employeeNoticeStatus = "NOT_CAPTURED",
-                customerConsentStatus = "UNKNOWN",
-                consentBasis = "NOT_RECORDED",
-                startedAtEpochMs = startTimeMs,
-                endedAtEpochMs = startTimeMs,
-                uploadStatus = "FAILED_BLOCKED_BY_OS",
-                phoneNumber = phoneNumber,
-                direction = direction
-            )
-            AppDatabase.get(applicationContext).recordingDao().insert(entity)
-            com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
-        }
-    }
-
-    private fun recordUnsupported() {
-        serviceScope.launch {
-            val entity = RecordingEntity(
-                sourceCallId = null,
-                sha256 = null,
-                filePath = null,
-                fileSizeBytes = 0,
-                durationMs = 0,
-                recordingSource = "UNSUPPORTED",
-                audioScope = "NONE",
-                capability = "NONE",
-                employeeNoticeStatus = "NOT_CAPTURED",
-                customerConsentStatus = "UNKNOWN",
-                consentBasis = "NOT_RECORDED",
-                startedAtEpochMs = startTimeMs,
-                endedAtEpochMs = startTimeMs,
-                uploadStatus = "FAILED_UNSUPPORTED",
-                phoneNumber = phoneNumber,
-                direction = direction
-            )
-            AppDatabase.get(applicationContext).recordingDao().insert(entity)
-            com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
         }
     }
 
@@ -304,7 +329,7 @@ class CallRecordingService : Service() {
     }
 
     override fun onDestroy() {
-        stopRecording()
+        stopRecording(false)
         serviceJob.cancel()
         super.onDestroy()
     }

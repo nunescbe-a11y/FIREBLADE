@@ -200,9 +200,19 @@ def install_routes(app, db, health_model):
         if direction is not None and direction.strip() == "":
             direction = None
             
-        is_metadata_only = recording_source in ("OS_BLOCKED", "UNSUPPORTED", "FAILED_BLOCKED_BY_OS", "FAILED_UNSUPPORTED")
+        is_metadata_only = recording_source in ("OS_BLOCKED", "UNSUPPORTED", "FAILED_BLOCKED_BY_OS", "FAILED_UNSUPPORTED", "FAILED_DURING_STOP")
         if not is_metadata_only and not file:
             raise HTTPException(400, "Audio file is required for this recording source")
+            
+        # Idempotency pre-check
+        _, existing = db("GET", f"fireblade_call_recordings?select=device_id,sha256&recording_id=eq.{quote(recording_id, safe='')}&limit=1")
+        if existing:
+            row = existing[0]
+            if row.get("device_id") != device_id:
+                raise HTTPException(409, "Duplicate recording ID with different device")
+            if not is_metadata_only and row.get("sha256") != sha256:
+                raise HTTPException(409, "Duplicate recording ID with different checksum")
+            return {"ok": True, "recording_id": recording_id}
         
         if not is_metadata_only:
             if not sha256:
@@ -236,20 +246,7 @@ def install_routes(app, db, health_model):
                 with urllib.request.urlopen(req, timeout=30):
                     pass
             except urllib.error.HTTPError as e:
-                if e.code in (400, 409):
-                    try:
-                        error_text = e.read().decode('utf-8')
-                        err_json = json.loads(error_text)
-                        msg = err_json.get("message", err_json.get("error", "")).lower()
-                        if "duplicate" in msg or "already exists" in msg or "alreadyexists" in msg:
-                            pass # idempotent success
-                        else:
-                            raise HTTPException(502, f"Failed to store audio file: {msg}")
-                    except Exception as parse_e:
-                        if isinstance(parse_e, HTTPException): raise
-                        raise HTTPException(502, "Failed to store audio file")
-                else:
-                    raise HTTPException(502, f"Failed to store audio file HTTP {e.code}")
+                raise HTTPException(502, f"Failed to store audio file HTTP {e.code}")
             except Exception:
                 raise HTTPException(502, "Failed to store audio file")
             
@@ -268,9 +265,10 @@ def install_routes(app, db, health_model):
             if calls:
                 call_id = calls[0]["id"]
                 
-        # Resolve employee_id
+        # Resolve employee_id using recording_started_at_epoch_ms
         employee_id = None
-        _, assignments = db("GET", f"fireblade_device_assignments?select=employee_id&device_id=eq.{quote(device_id, safe='')}&limit=1")
+        started_iso = datetime.fromtimestamp(started_at_epoch_ms / 1000.0, tz=timezone.utc).isoformat()
+        _, assignments = db("GET", f"fireblade_device_assignments?select=employee_id&device_id=eq.{quote(device_id, safe='')}&assigned_from=lte.{quote(started_iso, safe='')}&or=(assigned_until.is.null,assigned_until.gte.{quote(started_iso, safe='')})&limit=1")
         if assignments:
             employee_id = assignments[0].get("employee_id")
             
