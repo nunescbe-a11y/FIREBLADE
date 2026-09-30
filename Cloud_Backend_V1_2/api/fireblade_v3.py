@@ -4,9 +4,8 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional, Literal
 from urllib.parse import quote
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
-
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -170,3 +169,105 @@ def install_routes(app, db, health_model):
                 raise HTTPException(400, "Invalid release")
         db("POST", "fireblade_update_status?on_conflict=device_id", {"device_id": device_id, **body.model_dump(), "last_checked_at": utcnow().isoformat()}, "resolution=merge-duplicates,return=minimal")
         return {"ok": True}
+
+    @app.post("/api/v3/recordings")
+    def upload_recording(
+        device_id: str = Form(...),
+        recording_id: str = Form(...),
+        source_call_id: Optional[str] = Form(None),
+        sha256: Optional[str] = Form(None),
+        recording_source: str = Form(...),
+        audio_scope: str = Form(...),
+        capability: str = Form(...),
+        employee_notice_status: str = Form(...),
+        customer_consent_status: str = Form(...),
+        consent_basis: str = Form(...),
+        duration_ms: int = Form(...),
+        started_at_epoch_ms: int = Form(...),
+        ended_at_epoch_ms: int = Form(...),
+        mime_type: str = Form(...),
+        phone_number: Optional[str] = Form(None),
+        direction: Optional[str] = Form(None),
+        file: Optional[UploadFile] = File(None),
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        authorize(db, device_id, x_fireblade_token)
+        
+        is_metadata_only = recording_source in ("OS_BLOCKED", "UNSUPPORTED") or not file
+        
+        if not is_metadata_only:
+            if not sha256:
+                raise HTTPException(400, "sha256 is required for audio uploads")
+            
+            content = file.file.read()
+            if len(content) > 50 * 1024 * 1024:
+                raise HTTPException(413, "File too large")
+            
+            actual_sha = hashlib.sha256(content).hexdigest()
+            if actual_sha != sha256:
+                raise HTTPException(400, "Checksum mismatch")
+                
+            storage_path = f"{device_id}/{recording_id[:2]}/{recording_id}.mp4"
+            import os, urllib.request
+            base = os.environ.get("SUPABASE_URL", "http://localhost").rstrip("/")
+            key = os.environ.get("SUPABASE_SECRET_KEY", "")
+            req = urllib.request.Request(
+                f"{base}/storage/v1/object/fireblade-recordings/{storage_path}",
+                data=content,
+                method="POST",
+                headers={
+                    "apikey": key,
+                    "Content-Type": mime_type or "audio/mp4",
+                    **({"Authorization": f"Bearer {key}"} if key.startswith("eyJ") else {})
+                }
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30):
+                    pass
+            except urllib.error.HTTPError as e:
+                if e.code != 400: # 400 often means duplicate in Supabase Storage for POST
+                    raise HTTPException(502, "Failed to store audio file")
+            except Exception:
+                raise HTTPException(502, "Failed to store audio file")
+            
+            storage_bucket = "fireblade-recordings"
+            storage_object_path = storage_path
+            file_size_bytes = len(content)
+        else:
+            storage_bucket = None
+            storage_object_path = None
+            file_size_bytes = 0
+            
+        record = {
+            "recording_id": recording_id,
+            "device_id": device_id,
+            "source_call_id": source_call_id,
+            "phone_number": phone_number,
+            "direction": direction,
+            "recording_started_at_epoch_ms": started_at_epoch_ms,
+            "recording_ended_at_epoch_ms": ended_at_epoch_ms,
+            "duration_ms": duration_ms,
+            "recording_source": recording_source,
+            "recording_status": "UPLOADED" if not is_metadata_only else recording_source,
+            "audio_scope": audio_scope,
+            "capability": capability,
+            "employee_notice_status": employee_notice_status,
+            "customer_consent_status": customer_consent_status,
+            "consent_basis": consent_basis,
+            "mime_type": mime_type,
+            "file_size_bytes": file_size_bytes,
+            "sha256": sha256,
+            "storage_bucket": storage_bucket,
+            "storage_object_path": storage_object_path,
+            "upload_status": "SUCCESS",
+            "uploaded_at": utcnow().isoformat()
+        }
+        
+        try:
+            db("POST", "fireblade_call_recordings?on_conflict=recording_id", record, "resolution=merge-duplicates,return=minimal")
+        except HTTPException as e:
+            if "duplicate key value violates unique constraint" in str(e.detail):
+                raise HTTPException(409, "Duplicate recording")
+            raise
+            
+        return {"ok": True, "recording_id": recording_id}
