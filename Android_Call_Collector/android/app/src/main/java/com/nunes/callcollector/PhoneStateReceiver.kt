@@ -4,6 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 class PhoneStateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -36,7 +39,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 val pendingResult = goAsync()
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                GlobalScope.launch(Dispatchers.IO) {
                     try {
                         val entity = com.nunes.callcollector.data.RecordingEntity(
                             sourceCallId = null,

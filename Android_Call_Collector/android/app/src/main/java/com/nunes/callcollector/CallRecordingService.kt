@@ -15,6 +15,7 @@ import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.data.RecordingEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
@@ -188,7 +189,7 @@ class CallRecordingService : Service() {
         val finalPhoneNumber = phoneNumber
         val finalDirection = direction
 
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             try {
                 if (stopFailed) {
                     val entity = RecordingEntity(
@@ -248,7 +249,7 @@ class CallRecordingService : Service() {
         val finalStartTime = startTimeMs
         val finalPhoneNumber = phoneNumber
         val finalDirection = direction
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             try {
                 val entity = RecordingEntity(
                     sourceCallId = null,
@@ -281,7 +282,7 @@ class CallRecordingService : Service() {
         val finalStartTime = startTimeMs
         val finalPhoneNumber = phoneNumber
         val finalDirection = direction
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             try {
                 val entity = RecordingEntity(
                     sourceCallId = null,
