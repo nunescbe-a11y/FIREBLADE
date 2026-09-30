@@ -1,0 +1,407 @@
+"""Fireblade V5 WhatsApp preview routes.
+
+Preview V1 is deliberately provider-free:
+- reads an already-saved enquiry
+- revalidates the published canonical product and pinned immutable revision
+- uses VERIFIED specs only
+- persists an immutable READY preview bundle
+- never sends an external WhatsApp message
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import secrets
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
+from urllib.parse import quote
+
+from fastapi import Header, HTTPException
+from pydantic import BaseModel, Field
+
+
+class WhatsAppPreviewRequest(BaseModel):
+    call_id: int = Field(gt=0)
+
+
+def _body(result: Any) -> Any:
+    if isinstance(result, tuple) and len(result) == 2:
+        return result[1]
+    return result
+
+
+def _rows(result: Any) -> list[dict[str, Any]]:
+    value = _body(result)
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    return []
+
+
+def _require_internal_key(value: Optional[str]) -> None:
+    expected = os.getenv("FIREBLADE_INTERNAL_API_KEY", "").strip()
+    supplied = (value or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Internal API key is not configured")
+    if not supplied or not secrets.compare_digest(expected, supplied):
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+
+def _digits(value: Any) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def _text(value: Any) -> Optional[str]:
+    v = str(value or "").strip()
+    return v or None
+
+
+def _render_preview(
+    *,
+    person_name: Optional[str],
+    product_name: str,
+    model_code: Optional[str],
+    quantity: Any,
+    requested_range: Optional[str],
+    application_text: Optional[str],
+    requirement_text: Optional[str],
+    specs: list[dict[str, Any]],
+) -> str:
+    greeting = f"Hello {person_name}," if person_name else "Hello,"
+
+    product_line = product_name
+    if model_code and model_code.lower() not in product_name.lower():
+        product_line += f" ({model_code})"
+
+    lines = [
+        greeting,
+        "",
+        f"Thank you for your enquiry about {product_line}.",
+    ]
+
+    if quantity is not None:
+        lines.append(f"Quantity: {quantity}")
+
+    if specs:
+        lines.extend(["", "Verified product details:"])
+        for spec in specs:
+            label = _text(spec.get("spec_label")) or _text(spec.get("spec_key")) or "Specification"
+            value = _text(spec.get("value_text"))
+            if value:
+                lines.append(f"- {label}: {value}")
+
+    request_lines = []
+    if requested_range:
+        request_lines.append(f"Requested range: {requested_range}")
+    if application_text:
+        request_lines.append(f"Application: {application_text}")
+    if requirement_text:
+        request_lines.append(f"Requirement: {requirement_text}")
+
+    if request_lines:
+        lines.extend(["", "Your requirement:"])
+        lines.extend(request_lines)
+
+    lines.extend([
+        "",
+        "Please let us know if you need any further information.",
+        "",
+        "Regards,",
+        "Fireblade",
+    ])
+
+    return "\n".join(lines)
+
+
+def install_v5_whatsapp_routes(app, db):
+    @app.post("/api/v5/whatsapp/preview")
+    def whatsapp_preview(
+        body: WhatsAppPreviewRequest,
+        x_fireblade_internal_key: Optional[str] = Header(default=None),
+        x_fireblade_actor: Optional[str] = Header(default=None),
+    ):
+        _require_internal_key(x_fireblade_internal_key)
+        actor = (x_fireblade_actor or "SYSTEM:v5_whatsapp_preview").strip()[:120]
+
+        enquiries = _rows(db(
+            "GET",
+            (
+                "fireblade_call_enquiries?"
+                "select=id,call_id,contact_id,whatsapp_number_normalized,"
+                "primary_product_id,selected_product_revision_id,requirement_details&"
+                f"call_id=eq.{body.call_id}&limit=1"
+            ),
+        ))
+        if not enquiries:
+            raise HTTPException(status_code=404, detail="Saved enquiry not found")
+
+        enquiry = enquiries[0]
+        enquiry_id = str(enquiry["id"])
+        product_id = enquiry.get("primary_product_id")
+        revision_id = enquiry.get("selected_product_revision_id")
+        recipient = _digits(enquiry.get("whatsapp_number_normalized"))
+
+        if len(recipient) < 10 or len(recipient) > 15:
+            raise HTTPException(status_code=409, detail="Enquiry does not have a valid WhatsApp number")
+        if not product_id or not revision_id:
+            raise HTTPException(status_code=409, detail="Enquiry does not have an exact Fireblade Product revision")
+
+        products = _rows(db(
+            "GET",
+            (
+                "fireblade_products?"
+                "select=id,product_code,canonical_name,brand,category,subcategory,"
+                "publish_status,verification_status,lifecycle_status,current_revision_id&"
+                f"id=eq.{quote(str(product_id))}&"
+                "publish_status=eq.PUBLISHED&"
+                "verification_status=eq.VERIFIED&"
+                "lifecycle_status=eq.ACTIVE&"
+                f"current_revision_id=eq.{quote(str(revision_id))}&limit=1"
+            ),
+        ))
+        if not products:
+            raise HTTPException(
+                status_code=409,
+                detail="Selected Fireblade Product is no longer published, verified, active, or on the pinned revision",
+            )
+        product = products[0]
+
+        revisions = _rows(db(
+            "GET",
+            (
+                "fireblade_product_revisions?"
+                "select=id,revision_no,snapshot,snapshot_sha256,published_at&"
+                f"id=eq.{quote(str(revision_id))}&"
+                f"product_id=eq.{quote(str(product_id))}&limit=1"
+            ),
+        ))
+        if not revisions:
+            raise HTTPException(status_code=409, detail="Pinned immutable product revision was not found")
+        revision = revisions[0]
+
+        items = _rows(db(
+            "GET",
+            (
+                "fireblade_enquiry_items?"
+                "select=id,product_id,product_revision_id,variant_id,quantity,"
+                "requested_range,application_text,requirement_text,item_order&"
+                f"enquiry_id=eq.{quote(enquiry_id)}&item_order=eq.1&limit=1"
+            ),
+        ))
+        if not items:
+            raise HTTPException(status_code=409, detail="Canonical enquiry item was not found")
+        item = items[0]
+
+        if str(item.get("product_id")) != str(product_id):
+            raise HTTPException(status_code=409, detail="Enquiry product linkage mismatch")
+        if str(item.get("product_revision_id")) != str(revision_id):
+            raise HTTPException(status_code=409, detail="Enquiry revision linkage mismatch")
+
+        variant = None
+        variant_id = item.get("variant_id")
+        if variant_id:
+            variants = _rows(db(
+                "GET",
+                (
+                    "fireblade_product_variants?"
+                    "select=id,model_code,variant_name,ordering_code,verified,status&"
+                    f"id=eq.{quote(str(variant_id))}&"
+                    f"product_id=eq.{quote(str(product_id))}&limit=1"
+                ),
+            ))
+            if not variants:
+                raise HTTPException(status_code=409, detail="Selected product variant was not found")
+            variant = variants[0]
+            if not variant.get("verified") or variant.get("status") != "ACTIVE":
+                raise HTTPException(status_code=409, detail="Selected product variant is not verified and active")
+
+        contact = None
+        if enquiry.get("contact_id"):
+            contacts = _rows(db(
+                "GET",
+                (
+                    "fireblade_contacts?"
+                    "select=id,person_name,company_name,whatsapp_number_normalized&"
+                    f"id=eq.{quote(str(enquiry['contact_id']))}&limit=1"
+                ),
+            ))
+            contact = contacts[0] if contacts else None
+
+        snapshot = revision.get("snapshot") or {}
+        if isinstance(snapshot, str):
+            try:
+                snapshot = json.loads(snapshot)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=500, detail="Product revision snapshot is invalid")
+
+        raw_specs = snapshot.get("specs") if isinstance(snapshot, dict) else []
+        verified_specs = [
+            spec for spec in (raw_specs or [])
+            if isinstance(spec, dict)
+            and spec.get("verification_status") == "VERIFIED"
+            and _text(spec.get("value_text"))
+        ]
+        verified_specs.sort(
+            key=lambda s: int(s.get("customer_priority") or 0),
+            reverse=True,
+        )
+        preview_specs = verified_specs[:5]
+
+        person_name = _text((contact or {}).get("person_name"))
+        model_code = _text((variant or {}).get("model_code"))
+        requested_range = _text(item.get("requested_range"))
+        application_text = _text(item.get("application_text"))
+        requirement_text = _text(item.get("requirement_text")) or _text(enquiry.get("requirement_details"))
+
+        rendered_text = _render_preview(
+            person_name=person_name,
+            product_name=str(product["canonical_name"]),
+            model_code=model_code,
+            quantity=item.get("quantity"),
+            requested_range=requested_range,
+            application_text=application_text,
+            requirement_text=requirement_text,
+            specs=preview_specs,
+        )
+
+        immutable_core = {
+            "schema_version": "fireblade_whatsapp_preview_v1",
+            "call_id": body.call_id,
+            "enquiry_id": enquiry_id,
+            "recipient_number": recipient,
+            "product": {
+                "id": str(product_id),
+                "product_code": product["product_code"],
+                "canonical_name": product["canonical_name"],
+            },
+            "revision": {
+                "id": str(revision_id),
+                "revision_no": revision["revision_no"],
+                "snapshot_sha256": revision["snapshot_sha256"],
+                "published_at": revision["published_at"],
+            },
+            "variant": {
+                "id": str(variant_id) if variant_id else None,
+                "model_code": model_code,
+                "variant_name": _text((variant or {}).get("variant_name")),
+            },
+            "quantity": item.get("quantity"),
+            "requested_range": requested_range,
+            "application_text": application_text,
+            "requirement_text": requirement_text,
+            "verified_specs": [
+                {
+                    "spec_key": spec.get("spec_key"),
+                    "spec_label": spec.get("spec_label"),
+                    "value_text": spec.get("value_text"),
+                    "customer_priority": spec.get("customer_priority"),
+                    "source_chunk_id": spec.get("source_chunk_id"),
+                }
+                for spec in preview_specs
+            ],
+            "rendered_text": rendered_text,
+        }
+
+        canonical = json.dumps(
+            immutable_core,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        idempotency_key = str(uuid.uuid5(uuid.NAMESPACE_URL, fingerprint))
+
+        existing = _rows(db(
+            "GET",
+            (
+                "fireblade_message_bundles?"
+                "select=id,enquiry_id,recipient_number,mode,rendered_text,"
+                "payload_snapshot,status,idempotency_key,created_by,created_at&"
+                f"idempotency_key=eq.{idempotency_key}&limit=1"
+            ),
+        ))
+
+        if existing:
+            bundle = existing[0]
+        else:
+            # A changed preview supersedes older unsent previews for this enquiry.
+            # Historical rows remain preserved as CANCELLED.
+            db(
+                "PATCH",
+                (
+                    "fireblade_message_bundles?"
+                    f"enquiry_id=eq.{quote(enquiry_id)}&"
+                    "status=in.(DRAFT,READY)"
+                ),
+                {"status": "CANCELLED"},
+                "return=minimal",
+            )
+
+            payload_snapshot = {
+                **immutable_core,
+                "fingerprint_sha256": fingerprint,
+                "preview_created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            created = _rows(db(
+                "POST",
+                "fireblade_message_bundles?select=*",
+                {
+                    "enquiry_id": enquiry_id,
+                    "channel": "WHATSAPP",
+                    "recipient_number": recipient,
+                    "mode": "SESSION",
+                    "rendered_text": rendered_text,
+                    "payload_snapshot": payload_snapshot,
+                    "status": "READY",
+                    "idempotency_key": idempotency_key,
+                    "created_by": actor,
+                },
+                "return=representation",
+            ))
+            if not created:
+                raise HTTPException(status_code=500, detail="Could not persist WhatsApp preview bundle")
+            bundle = created[0]
+
+        return {
+            "ok": True,
+            "bundle": bundle,
+            "send_enabled": False,
+            "send_disabled_reason": "WhatsApp provider sending is disabled in Preview V1",
+        }
+
+    @app.get("/api/v5/whatsapp/bundles/{bundle_id}")
+    def whatsapp_bundle(
+        bundle_id: str,
+        x_fireblade_internal_key: Optional[str] = Header(default=None),
+    ):
+        _require_internal_key(x_fireblade_internal_key)
+
+        try:
+            uuid.UUID(bundle_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid bundle id")
+
+        rows = _rows(db(
+            "GET",
+            (
+                "fireblade_message_bundles?"
+                "select=id,enquiry_id,channel,recipient_number,mode,rendered_text,"
+                "payload_snapshot,status,idempotency_key,created_by,created_at,"
+                "sent_at,failed_at,error_message&"
+                f"id=eq.{quote(bundle_id)}&limit=1"
+            ),
+        ))
+        if not rows:
+            raise HTTPException(status_code=404, detail="WhatsApp preview bundle not found")
+
+        return {
+            "ok": True,
+            "bundle": rows[0],
+            "send_enabled": False,
+        }

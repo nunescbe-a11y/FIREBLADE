@@ -1,0 +1,14 @@
+FIREBLADE V3 BACKEND UPDATE
+
+This package intentionally has NO vercel.json in Cloud_Backend_V1_2.
+Vercel FastAPI zero-config routes /api/* to api/index.py.
+
+Read ../README_FIRST.txt first. Apply the V3 migration before this backend update.
+Use your existing Vercel project and existing deployment workflow. Do not create
+a replacement API project or change the URL already configured on working phones.
+Keep SUPABASE_URL and SUPABASE_SECRET_KEY in protected server-side settings.
+
+After deployment, verify /api/health at YOUR EXISTING API address, then test an
+existing call upload and a V3 enrollment/check on one company test phone.
+
+No deployment has been performed from this source package.

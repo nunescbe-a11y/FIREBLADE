@@ -48,3 +48,19 @@ Android_Call_Collector/**/google-services.json
 Android_Call_Collector/**/local.properties
 Android_Call_Collector/**/*.jks
 Android_Call_Collector/**/*.keystore
+
+# Cloud backend private/generated files
+Cloud_Backend_V1_2/.env
+Cloud_Backend_V1_2/.env.*
+!Cloud_Backend_V1_2/.env.example
+Cloud_Backend_V1_2/.vercel/
+Cloud_Backend_V1_2/**/__pycache__/
+Cloud_Backend_V1_2/.pytest_cache/
+Cloud_Backend_V1_2/.venv/
+Cloud_Backend_V1_2/venv/
+Cloud_Backend_V1_2/**/*.pem
+Cloud_Backend_V1_2/**/*.key
+Cloud_Backend_V1_2/**/*.p12
+Cloud_Backend_V1_2/**/*.pfx
+Cloud_Backend_V1_2/**/google_service_account.json
+Cloud_Backend_V1_2/**/service-account.json
