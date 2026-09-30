@@ -307,4 +307,61 @@ class DeviceApiTests(unittest.TestCase):
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertIsNone(stored[-1][2]['employee_id'])
 
+    def test_recording_upload_missing_sha256_returns_400(self):
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_missing_sha', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('sha256 is required', r.text)
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+        self.assertEqual(len(stored), 0)
+
+    def test_recording_upload_checksum_mismatch_returns_400(self):
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_bad_sha', 'sha256':'bad', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Checksum mismatch', r.text)
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+        self.assertEqual(len(stored), 0)
+
+    def test_recording_upload_empty_file_returns_400(self):
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_empty', 'sha256':'any', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'')}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('payload is empty', r.text)
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+        self.assertEqual(len(stored), 0)
+
+    def test_recording_upload_unsupported_mime_returns_400(self):
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_mime', 'sha256':'any', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mpeg'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Unsupported MIME type', r.text)
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+        self.assertEqual(len(stored), 0)
+
+    def test_recording_upload_valid_retry_succeeds_after_malformed(self):
+        import hashlib
+        content = b'test audio'
+        sha = hashlib.sha256(content).hexdigest()
+        
+        def mock_db_fresh(method, path, *args, **kwargs):
+            if 'fireblade_call_recordings?' in path and method == 'GET':
+                return (200, [])
+            self.calls.append((method, path, args[0] if args else None))
+            return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
+            
+        with patch('urllib.request.urlopen'):
+            with patch.object(index, '_supabase', side_effect=mock_db_fresh):
+                # 1. Malformed request (missing sha256)
+                r1 = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_retry_ok', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                self.assertEqual(r1.status_code, 400)
+                
+                # Verify no DB row created
+                stored1 = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+                self.assertEqual(len(stored1), 0)
+                
+                # 2. Corrected valid request
+                r2 = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_retry_ok', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                self.assertEqual(r2.status_code, 200)
+                
+                # Verify DB row was now created properly
+                stored2 = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+                self.assertEqual(len(stored2), 1)
+
 if __name__=='__main__':unittest.main()

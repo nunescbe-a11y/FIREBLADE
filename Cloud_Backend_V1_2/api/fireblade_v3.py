@@ -201,8 +201,25 @@ def install_routes(app, db, health_model):
             direction = None
             
         is_metadata_only = recording_source in ("OS_BLOCKED", "UNSUPPORTED", "FAILED_BLOCKED_BY_OS", "FAILED_UNSUPPORTED", "FAILED_DURING_STOP")
-        if not is_metadata_only and not file:
-            raise HTTPException(400, "Audio file is required for this recording source")
+        
+        content = None
+        if not is_metadata_only:
+            if mime_type != "audio/mp4":
+                raise HTTPException(400, "Unsupported MIME type")
+            if not file:
+                raise HTTPException(400, "Audio file is required for this recording source")
+            if not sha256:
+                raise HTTPException(400, "sha256 is required for audio uploads")
+            
+            content = file.file.read()
+            if not content:
+                raise HTTPException(400, "Audio file payload is empty")
+            if len(content) > 50 * 1024 * 1024:
+                raise HTTPException(413, "File too large")
+            
+            actual_sha = hashlib.sha256(content).hexdigest()
+            if actual_sha != sha256:
+                raise HTTPException(400, "Checksum mismatch")
             
         # Resolve call_id
         call_id = None
@@ -265,19 +282,6 @@ def install_routes(app, db, health_model):
                 raise
         
         if not is_metadata_only:
-            if not sha256:
-                raise HTTPException(400, "sha256 is required for audio uploads")
-            
-            content = file.file.read()
-            if not content:
-                raise HTTPException(400, "Audio file payload is empty")
-            if len(content) > 50 * 1024 * 1024:
-                raise HTTPException(413, "File too large")
-            
-            actual_sha = hashlib.sha256(content).hexdigest()
-            if actual_sha != sha256:
-                raise HTTPException(400, "Checksum mismatch")
-                
             storage_path = f"{device_id}/{recording_id[:2]}/{recording_id}.mp4"
             import os, urllib.request, json
             base = os.environ.get("SUPABASE_URL", "http://localhost").rstrip("/")
