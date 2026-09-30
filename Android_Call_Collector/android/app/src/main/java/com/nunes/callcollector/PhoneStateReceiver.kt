@@ -18,9 +18,14 @@ class PhoneStateReceiver : BroadcastReceiver() {
             previous == TelephonyManager.EXTRA_STATE_RINGING ||
             previous == TelephonyManager.EXTRA_STATE_OFFHOOK
 
+        val phoneNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+        val direction = if (previous == TelephonyManager.EXTRA_STATE_RINGING) "INCOMING" else "OUTGOING"
+
         if (state == TelephonyManager.EXTRA_STATE_OFFHOOK) {
             val startIntent = Intent(context, CallRecordingService::class.java).apply {
                 action = CallRecordingService.ACTION_START
+                putExtra("PHONE_NUMBER", phoneNumber)
+                putExtra("DIRECTION", direction)
             }
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -30,6 +35,32 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                val pendingResult = goAsync()
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val entity = com.nunes.callcollector.data.RecordingEntity(
+                            sourceCallId = null,
+                            sha256 = null,
+                            filePath = null,
+                            fileSizeBytes = 0,
+                            durationMs = 0,
+                            recordingSource = "OS_BLOCKED",
+                            audioScope = "NONE",
+                            capability = "NONE",
+                            employeeNoticeStatus = "NOT_CAPTURED",
+                            customerConsentStatus = "UNKNOWN",
+                            consentBasis = "NOT_RECORDED",
+                            startedAtEpochMs = System.currentTimeMillis(),
+                            endedAtEpochMs = System.currentTimeMillis(),
+                            uploadStatus = "FAILED_BLOCKED_BY_OS",
+                            phoneNumber = phoneNumber,
+                            direction = direction
+                        )
+                        com.nunes.callcollector.data.AppDatabase.get(context).recordingDao().insert(entity)
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
             }
         }
 

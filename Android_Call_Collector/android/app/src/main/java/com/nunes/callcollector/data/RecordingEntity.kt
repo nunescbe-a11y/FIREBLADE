@@ -12,6 +12,7 @@ import androidx.room.PrimaryKey
 )
 data class RecordingEntity(
     @PrimaryKey(autoGenerate = true) val localId: Long = 0,
+    val recordingId: String = java.util.UUID.randomUUID().toString(),
     val sourceCallId: String?,
     val sha256: String?,
     val filePath: String?,
@@ -27,5 +28,7 @@ data class RecordingEntity(
     val createdAtEpochMs: Long = System.currentTimeMillis(),
     val startedAtEpochMs: Long = 0,
     val endedAtEpochMs: Long = 0,
-    val mimeType: String = "audio/mp4"
+    val mimeType: String = "audio/mp4",
+    val phoneNumber: String? = null,
+    val direction: String? = null
 )

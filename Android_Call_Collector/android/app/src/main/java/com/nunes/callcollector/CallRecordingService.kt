@@ -25,6 +25,8 @@ class CallRecordingService : Service() {
     private var isRecording = false
     private var currentFile: File? = null
     private var currentSourceCallId: String? = null
+    private var phoneNumber: String? = null
+    private var direction: String? = null
     private var recordingSource: String = "MEDIARECORDER_MIC"
     private var audioScope: String = "EMPLOYEE_ONLY"
     private var capability: String = "MIC_ONLY"
@@ -49,6 +51,8 @@ class CallRecordingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_START) {
+            phoneNumber = intent.getStringExtra("PHONE_NUMBER")
+            direction = intent.getStringExtra("DIRECTION")
             startRecording()
         } else if (intent?.action == ACTION_STOP) {
             stopRecording()
@@ -116,39 +120,37 @@ class CallRecordingService : Service() {
         try {
             // Attempt VOICE_CALL first
             mediaRecorder?.setAudioSource(MediaRecorder.AudioSource.VOICE_CALL)
+            mediaRecorder?.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            mediaRecorder?.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            mediaRecorder?.setOutputFile(currentFile?.absolutePath)
+            mediaRecorder?.prepare()
+            mediaRecorder?.start()
             recordingSource = "MEDIARECORDER_VOICE_CALL"
-            audioScope = "BOTH_SIDES"
+            audioScope = "BOTH_SIDES_CANDIDATE"
             capability = "VOICE_CALL"
+            isRecording = true
+            startTimeMs = System.currentTimeMillis()
         } catch (e: Exception) {
             // Fallback to MIC
             mediaRecorder?.reset()
             try {
                 mediaRecorder?.setAudioSource(MediaRecorder.AudioSource.MIC)
+                mediaRecorder?.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                mediaRecorder?.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                mediaRecorder?.setOutputFile(currentFile?.absolutePath)
+                mediaRecorder?.prepare()
+                mediaRecorder?.start()
                 recordingSource = "MEDIARECORDER_MIC"
                 audioScope = "EMPLOYEE_ONLY"
                 capability = "MIC_ONLY"
+                isRecording = true
+                startTimeMs = System.currentTimeMillis()
             } catch (e2: Exception) {
                 e2.printStackTrace()
                 recordUnsupported()
                 stopSelf()
                 return
             }
-        }
-
-        try {
-            mediaRecorder?.apply {
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setOutputFile(currentFile?.absolutePath)
-                prepare()
-                start()
-            }
-            isRecording = true
-            startTimeMs = System.currentTimeMillis()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            cleanup()
-            stopSelf()
         }
     }
 
@@ -181,12 +183,14 @@ class CallRecordingService : Service() {
                     recordingSource = recordingSource,
                     audioScope = audioScope,
                     capability = capability,
-                    employeeNoticeStatus = "AUTO_NOTICE",
-                    customerConsentStatus = "AUTO_CONSENT",
-                    consentBasis = "LEGITIMATE_INTEREST",
+                    employeeNoticeStatus = "NOT_CAPTURED",
+                    customerConsentStatus = "UNKNOWN",
+                    consentBasis = "NOT_RECORDED",
                     startedAtEpochMs = startTimeMs,
                     endedAtEpochMs = endTimeMs,
-                    uploadStatus = "PENDING"
+                    uploadStatus = "PENDING",
+                    phoneNumber = phoneNumber,
+                    direction = direction
                 )
                 AppDatabase.get(applicationContext).recordingDao().insert(entity)
                 
@@ -209,12 +213,14 @@ class CallRecordingService : Service() {
                 recordingSource = "OS_BLOCKED",
                 audioScope = "NONE",
                 capability = "NONE",
-                employeeNoticeStatus = "AUTO_NOTICE",
-                customerConsentStatus = "AUTO_CONSENT",
-                consentBasis = "LEGITIMATE_INTEREST",
+                employeeNoticeStatus = "NOT_CAPTURED",
+                customerConsentStatus = "UNKNOWN",
+                consentBasis = "NOT_RECORDED",
                 startedAtEpochMs = startTimeMs,
                 endedAtEpochMs = startTimeMs,
-                uploadStatus = "FAILED_BLOCKED_BY_OS"
+                uploadStatus = "FAILED_BLOCKED_BY_OS",
+                phoneNumber = phoneNumber,
+                direction = direction
             )
             AppDatabase.get(applicationContext).recordingDao().insert(entity)
         }
@@ -231,12 +237,14 @@ class CallRecordingService : Service() {
                 recordingSource = "UNSUPPORTED",
                 audioScope = "NONE",
                 capability = "NONE",
-                employeeNoticeStatus = "AUTO_NOTICE",
-                customerConsentStatus = "AUTO_CONSENT",
-                consentBasis = "LEGITIMATE_INTEREST",
+                employeeNoticeStatus = "NOT_CAPTURED",
+                customerConsentStatus = "UNKNOWN",
+                consentBasis = "NOT_RECORDED",
                 startedAtEpochMs = startTimeMs,
                 endedAtEpochMs = startTimeMs,
-                uploadStatus = "FAILED_UNSUPPORTED"
+                uploadStatus = "FAILED_UNSUPPORTED",
+                phoneNumber = phoneNumber,
+                direction = direction
             )
             AppDatabase.get(applicationContext).recordingDao().insert(entity)
         }

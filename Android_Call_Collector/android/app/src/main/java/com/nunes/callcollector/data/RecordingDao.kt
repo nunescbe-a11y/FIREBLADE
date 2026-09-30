@@ -14,7 +14,7 @@ interface RecordingDao {
     @Update
     suspend fun update(recording: RecordingEntity)
 
-    @Query("SELECT * FROM recordings WHERE uploadStatus = 'PENDING' OR uploadStatus = 'FAILED' ORDER BY createdAtEpochMs ASC LIMIT :limit")
+    @Query("SELECT * FROM recordings WHERE uploadStatus IN ('PENDING', 'FAILED', 'FAILED_BLOCKED_BY_OS', 'FAILED_UNSUPPORTED') ORDER BY createdAtEpochMs ASC LIMIT :limit")
     suspend fun pending(limit: Int = 20): List<RecordingEntity>
 
     @Query("UPDATE recordings SET uploadStatus = :status WHERE localId IN (:ids)")

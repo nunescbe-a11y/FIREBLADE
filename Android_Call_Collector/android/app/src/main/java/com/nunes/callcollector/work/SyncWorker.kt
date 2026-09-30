@@ -28,9 +28,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             while (batches < 20) {
                 val pending = dao.pending(200)
                 if (pending.isEmpty()) {
-                    state.synced()
-                    com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, eventType = "CALL_SYNC")
-                    return@withContext Result.success()
+                    break
                 }
 
                 state.set("SYNCING", "Uploading ${pending.size} pending call${if (pending.size == 1) "" else "s"}…")
@@ -53,36 +51,31 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 batches++
             }
 
-            if (dao.pendingCount() > 0) {
+            // Upload recordings (runs whether calls were pending or not)
+            val recordingDao = AppDatabase.get(applicationContext).recordingDao()
+            val pendingRecordings = recordingDao.pending(20)
+            var recordingsUploaded = 0
+            for (recording in pendingRecordings) {
+                state.set("SYNCING", "Uploading recording ${recording.recordingId}...")
+                val recResult = ApiClient.uploadRecording(config, recording)
+                if (recResult.ok) {
+                    recordingDao.updateStatus(listOf(recording.localId), "SUCCESS")
+                    val file = recording.filePath?.let { java.io.File(it) }
+                    if (file?.exists() == true) file.delete()
+                    recordingsUploaded++
+                } else {
+                    recordingDao.updateStatus(listOf(recording.localId), "FAILED")
+                    state.set("RETRYING", recResult.message)
+                    return@withContext Result.retry()
+                }
+            }
+            
+            if (dao.pendingCount() > 0 || pendingRecordings.size > recordingsUploaded) {
                 state.set("QUEUED", "More records remain; another automatic sync will continue.")
                 com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
             } else {
-                // Upload recordings
-                val recordingDao = AppDatabase.get(applicationContext).recordingDao()
-                val pendingRecordings = recordingDao.pending(20)
-                var recordingsUploaded = 0
-                for (recording in pendingRecordings) {
-                    // Do not upload if sourceCallId is not resolved yet
-                    if (recording.sourceCallId == null) continue
-
-                    state.set("SYNCING", "Uploading recording ${recording.sourceCallId}...")
-                    val recResult = ApiClient.uploadRecording(config, recording)
-                    if (recResult.ok) {
-                        recordingDao.updateStatus(listOf(recording.localId), "SUCCESS")
-                        val file = java.io.File(recording.filePath)
-                        if (file.exists()) file.delete()
-                        recordingsUploaded++
-                    } else {
-                        recordingDao.updateStatus(listOf(recording.localId), "FAILED")
-                        state.set("RETRYING", recResult.message)
-                        return@withContext Result.retry()
-                    }
-                }
-                
-                if (recordingsUploaded > 0 || dao.pendingCount() == 0) {
-                    state.synced()
-                    com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, eventType = "CALL_SYNC")
-                }
+                state.synced()
+                com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, eventType = "CALL_SYNC")
             }
             Result.success()
         } catch (e: Exception) {

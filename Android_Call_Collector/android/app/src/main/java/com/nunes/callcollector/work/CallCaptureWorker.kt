@@ -42,11 +42,19 @@ class CallCaptureWorker(appContext: Context, params: WorkerParameters) :
             if (pendingRecordings.isNotEmpty()) {
                 val latestCalls = dao.latest(50)
                 for (recording in pendingRecordings) {
-                    if (recording.sourceCallId == null && recording.uploadStatus == "PENDING") {
+                    if (recording.sourceCallId == null) {
                         val recordingStartMs = recording.startedAtEpochMs
                         
                         val candidates = latestCalls.filter { call ->
-                            Math.abs(call.startedAtEpochMs - recordingStartMs) < 60000 // within 60s
+                            val timeMatch = Math.abs(call.startedAtEpochMs - recordingStartMs) < 60000 // within 60s
+                            val numberMatch = recording.phoneNumber == null || 
+                                              call.numberRaw == recording.phoneNumber || 
+                                              call.numberNormalized == recording.phoneNumber ||
+                                              (recording.phoneNumber != null && call.numberNormalized.endsWith(recording.phoneNumber.takeLast(7)))
+                            
+                            val directionMatch = recording.direction == null || call.direction.equals(recording.direction, ignoreCase = true)
+                            
+                            timeMatch && numberMatch && directionMatch
                         }
                         
                         if (candidates.size == 1) {

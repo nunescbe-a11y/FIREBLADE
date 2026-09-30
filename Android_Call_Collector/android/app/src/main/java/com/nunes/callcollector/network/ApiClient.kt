@@ -89,10 +89,9 @@ object ApiClient {
     fun uploadRecording(config: ConfigStore, recording: com.nunes.callcollector.data.RecordingEntity): SyncResult {
         if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
         if (config.deviceToken.isBlank()) return SyncResult(false, emptySet(), "Not enrolled")
-        val file = java.io.File(recording.filePath)
-        if (!file.exists()) return SyncResult(false, emptySet(), "File not found")
+        val file = recording.filePath?.let { java.io.File(it) }
+        val hasFile = file != null && file.exists()
 
-        if (recording.sourceCallId == null) return SyncResult(false, emptySet(), "sourceCallId is null")
         val boundary = "----FirebladeBoundary${System.currentTimeMillis()}"
         val conn = (URL("${config.apiUrl}/api/v3/recordings").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -107,15 +106,17 @@ object ApiClient {
             conn.outputStream.use { os ->
                 val writer = os.writer(Charsets.UTF_8)
                 
-                fun writeField(name: String, value: String) {
+                fun writeField(name: String, value: String?) {
+                    if (value == null) return
                     writer.write("--$boundary\r\n")
                     writer.write("Content-Disposition: form-data; name=\"$name\"\r\n\r\n")
                     writer.write("$value\r\n")
                 }
 
                 writeField("device_id", config.deviceId)
+                writeField("recording_id", recording.recordingId)
                 writeField("source_call_id", recording.sourceCallId)
-                if (recording.sha256 != null) writeField("sha256", recording.sha256)
+                writeField("sha256", recording.sha256)
                 writeField("recording_source", recording.recordingSource)
                 writeField("audio_scope", recording.audioScope)
                 writeField("capability", recording.capability)
@@ -126,17 +127,22 @@ object ApiClient {
                 writeField("started_at_epoch_ms", recording.startedAtEpochMs.toString())
                 writeField("ended_at_epoch_ms", recording.endedAtEpochMs.toString())
                 writeField("mime_type", recording.mimeType)
+                writeField("phone_number", recording.phoneNumber)
+                writeField("direction", recording.direction)
 
-                writer.write("--$boundary\r\n")
-                writer.write("Content-Disposition: form-data; name=\"file\"; filename=\"${file.name}\"\r\n")
-                writer.write("Content-Type: audio/mp4\r\n\r\n")
-                writer.flush()
-                
-                file.inputStream().use { input ->
-                    input.copyTo(os)
+                if (hasFile) {
+                    writer.write("--$boundary\r\n")
+                    writer.write("Content-Disposition: form-data; name=\"file\"; filename=\"${file!!.name}\"\r\n")
+                    writer.write("Content-Type: audio/mp4\r\n\r\n")
+                    writer.flush()
+                    
+                    file.inputStream().use { input ->
+                        input.copyTo(os)
+                    }
+                    os.write("\r\n".toByteArray(Charsets.UTF_8))
                 }
                 
-                os.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
+                os.write("--$boundary--\r\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
 
@@ -145,7 +151,7 @@ object ApiClient {
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
 
             if (code in 200..299) {
-                SyncResult(true, setOf(recording.sourceCallId), "Uploaded recording")
+                SyncResult(true, setOf(recording.recordingId), "Uploaded recording")
             } else {
                 SyncResult(false, emptySet(), "HTTP $code: $text")
             }

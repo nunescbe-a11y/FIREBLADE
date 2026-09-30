@@ -29,6 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `recordings` (" +
                     "`localId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`recordingId` TEXT NOT NULL, " +
                     "`sourceCallId` TEXT, " +
                     "`sha256` TEXT, " +
                     "`filePath` TEXT, " +
@@ -44,7 +45,9 @@ abstract class AppDatabase : RoomDatabase() {
                     "`createdAtEpochMs` INTEGER NOT NULL, " +
                     "`startedAtEpochMs` INTEGER NOT NULL, " +
                     "`endedAtEpochMs` INTEGER NOT NULL, " +
-                    "`mimeType` TEXT NOT NULL)"
+                    "`mimeType` TEXT NOT NULL, " +
+                    "`phoneNumber` TEXT, " +
+                    "`direction` TEXT)"
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_recordings_sourceCallId_sha256` ON `recordings` (`sourceCallId`, `sha256`)")
             }
