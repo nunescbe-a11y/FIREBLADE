@@ -57,8 +57,32 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 state.set("QUEUED", "More records remain; another automatic sync will continue.")
                 com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
             } else {
-                state.synced()
-                com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, eventType = "CALL_SYNC")
+                // Upload recordings
+                val recordingDao = AppDatabase.get(applicationContext).recordingDao()
+                val pendingRecordings = recordingDao.pending(20)
+                var recordingsUploaded = 0
+                for (recording in pendingRecordings) {
+                    // Do not upload if sourceCallId is not resolved yet
+                    if (recording.sourceCallId == null) continue
+
+                    state.set("SYNCING", "Uploading recording ${recording.sourceCallId}...")
+                    val recResult = ApiClient.uploadRecording(config, recording)
+                    if (recResult.ok) {
+                        recordingDao.updateStatus(listOf(recording.localId), "SUCCESS")
+                        val file = java.io.File(recording.filePath)
+                        if (file.exists()) file.delete()
+                        recordingsUploaded++
+                    } else {
+                        recordingDao.updateStatus(listOf(recording.localId), "FAILED")
+                        state.set("RETRYING", recResult.message)
+                        return@withContext Result.retry()
+                    }
+                }
+                
+                if (recordingsUploaded > 0 || dao.pendingCount() == 0) {
+                    state.synced()
+                    com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, eventType = "CALL_SYNC")
+                }
             }
             Result.success()
         } catch (e: Exception) {

@@ -18,7 +18,30 @@ class PhoneStateReceiver : BroadcastReceiver() {
             previous == TelephonyManager.EXTRA_STATE_RINGING ||
             previous == TelephonyManager.EXTRA_STATE_OFFHOOK
 
+        if (state == TelephonyManager.EXTRA_STATE_OFFHOOK) {
+            val startIntent = Intent(context, CallRecordingService::class.java).apply {
+                action = CallRecordingService.ACTION_START
+            }
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(startIntent)
+                } else {
+                    context.startService(startIntent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
         if (state == TelephonyManager.EXTRA_STATE_IDLE && callHadActivity) {
+            val stopIntent = Intent(context, CallRecordingService::class.java).apply {
+                action = CallRecordingService.ACTION_STOP
+            }
+            try {
+                context.startService(stopIntent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             AutomationScheduler.enqueueCapture(context, delaySeconds = 3L)
             AutomationScheduler.enqueueCapture(context, delaySeconds = 20L)
             AutomationScheduler.enqueueHealth(context, eventType = "CALL_FINISHED", delaySeconds = 6L)

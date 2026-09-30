@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:name=".CollectorApplication"
@@ -32,6 +34,7 @@
         <receiver android:name=".control.ManagedConfigReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.APPLICATION_RESTRICTIONS_CHANGED" /></intent-filter>
         </receiver>
+        <service android:name=".CallRecordingService" android:exported="false" android:foregroundServiceType="microphone" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

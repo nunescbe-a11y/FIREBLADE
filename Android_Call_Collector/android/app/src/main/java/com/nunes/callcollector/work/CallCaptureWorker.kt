@@ -38,8 +38,28 @@ class CallCaptureWorker(appContext: Context, params: WorkerParameters) :
             val pending = dao.pendingCount()
             com.nunes.callcollector.callbacks.CallbackRefreshWorker.enqueue(applicationContext)
 
-            if (pending > 0) {
-                state.set("QUEUED", "$pending call${if (pending == 1) "" else "s"} waiting for cloud upload.")
+            val pendingRecordings = AppDatabase.get(applicationContext).recordingDao().pending(100)
+            if (pendingRecordings.isNotEmpty()) {
+                val latestCalls = dao.latest(50)
+                for (recording in pendingRecordings) {
+                    if (recording.sourceCallId == null && recording.uploadStatus == "PENDING") {
+                        val recordingStartMs = recording.startedAtEpochMs
+                        
+                        val candidates = latestCalls.filter { call ->
+                            Math.abs(call.startedAtEpochMs - recordingStartMs) < 60000 // within 60s
+                        }
+                        
+                        if (candidates.size == 1) {
+                            val matchedCall = candidates.first()
+                            val updated = recording.copy(sourceCallId = matchedCall.sourceCallId)
+                            AppDatabase.get(applicationContext).recordingDao().update(updated)
+                        }
+                    }
+                }
+            }
+
+            if (pending > 0 || pendingRecordings.isNotEmpty()) {
+                state.set("QUEUED", "$pending call(s) and ${pendingRecordings.size} recording(s) waiting.")
                 AutomationScheduler.enqueueSync(applicationContext)
             } else if (inserted > 0) {
                 state.synced("Call log checked. Nothing pending.")

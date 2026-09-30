@@ -85,4 +85,74 @@ object ApiClient {
             conn.disconnect()
         }
     }
+
+    fun uploadRecording(config: ConfigStore, recording: com.nunes.callcollector.data.RecordingEntity): SyncResult {
+        if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
+        if (config.deviceToken.isBlank()) return SyncResult(false, emptySet(), "Not enrolled")
+        val file = java.io.File(recording.filePath)
+        if (!file.exists()) return SyncResult(false, emptySet(), "File not found")
+
+        if (recording.sourceCallId == null) return SyncResult(false, emptySet(), "sourceCallId is null")
+        val boundary = "----FirebladeBoundary${System.currentTimeMillis()}"
+        val conn = (URL("${config.apiUrl}/api/v3/recordings").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15000
+            readTimeout = 60000
+            doOutput = true
+            setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            setRequestProperty("X-Fireblade-Token", config.deviceToken)
+        }
+
+        return try {
+            conn.outputStream.use { os ->
+                val writer = os.writer(Charsets.UTF_8)
+                
+                fun writeField(name: String, value: String) {
+                    writer.write("--$boundary\r\n")
+                    writer.write("Content-Disposition: form-data; name=\"$name\"\r\n\r\n")
+                    writer.write("$value\r\n")
+                }
+
+                writeField("device_id", config.deviceId)
+                writeField("source_call_id", recording.sourceCallId)
+                if (recording.sha256 != null) writeField("sha256", recording.sha256)
+                writeField("recording_source", recording.recordingSource)
+                writeField("audio_scope", recording.audioScope)
+                writeField("capability", recording.capability)
+                writeField("employee_notice_status", recording.employeeNoticeStatus)
+                writeField("customer_consent_status", recording.customerConsentStatus)
+                writeField("consent_basis", recording.consentBasis)
+                writeField("duration_ms", recording.durationMs.toString())
+                writeField("started_at_epoch_ms", recording.startedAtEpochMs.toString())
+                writeField("ended_at_epoch_ms", recording.endedAtEpochMs.toString())
+                writeField("mime_type", recording.mimeType)
+
+                writer.write("--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"file\"; filename=\"${file.name}\"\r\n")
+                writer.write("Content-Type: audio/mp4\r\n\r\n")
+                writer.flush()
+                
+                file.inputStream().use { input ->
+                    input.copyTo(os)
+                }
+                
+                os.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
+
+            val code = conn.responseCode
+            val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+            if (code in 200..299) {
+                SyncResult(true, setOf(recording.sourceCallId), "Uploaded recording")
+            } else {
+                SyncResult(false, emptySet(), "HTTP $code: $text")
+            }
+        } catch (e: Exception) {
+            SyncResult(false, emptySet(), e.message ?: e.javaClass.simpleName)
+        } finally {
+            conn.disconnect()
+        }
+    }
 }
