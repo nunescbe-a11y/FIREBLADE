@@ -193,6 +193,13 @@ def install_routes(app, db, health_model):
     ):
         authorize(db, device_id, x_fireblade_token)
         
+        import uuid
+        try:
+            recording_id = str(uuid.UUID(recording_id))
+        except ValueError:
+            raise HTTPException(400, "Invalid recording_id format")
+
+        
         if source_call_id is not None and source_call_id.strip() == "":
             source_call_id = None
         if phone_number is not None and phone_number.strip() == "":
@@ -286,8 +293,9 @@ def install_routes(app, db, health_model):
             import os, urllib.request, json
             base = os.environ.get("SUPABASE_URL", "http://localhost").rstrip("/")
             key = os.environ.get("SUPABASE_SECRET_KEY", "")
+            safe_storage_path = quote(storage_path, safe="/")
             req = urllib.request.Request(
-                f"{base}/storage/v1/object/fireblade-recordings/{storage_path}",
+                f"{base}/storage/v1/object/fireblade-recordings/{safe_storage_path}",
                 data=content,
                 method="POST",
                 headers={

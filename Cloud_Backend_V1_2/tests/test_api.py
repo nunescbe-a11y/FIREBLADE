@@ -106,33 +106,33 @@ class DeviceApiTests(unittest.TestCase):
         self.assertEqual(body['variants'][0]['model_code'],'VT 10')
 
     def test_recording_upload_missing_token(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'})
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'})
         self.assertEqual(r.status_code, 401)
 
     def test_recording_upload_invalid_token(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers={'X-Fireblade-Token': 'wrong-token-with-enough-length'})
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers={'X-Fireblade-Token': 'wrong-token-with-enough-length'})
         self.assertEqual(r.status_code, 401)
         
     def test_recording_upload_revoked_token(self):
         with patch.object(index, '_supabase', side_effect=lambda m,p,*a: (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':'2026-09-01T00:00:00Z'}]) if 'fireblade_device_credentials' in p else (200, [{'device_id':'MKT-001'}])):
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
             self.assertEqual(r.status_code, 401)
 
     def test_recording_upload_inactive_device(self):
         with patch.object(index, '_supabase', side_effect=lambda m,p,*a: (200, []) if 'fireblade_devices' in p else (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}])):
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
             self.assertEqual(r.status_code, 403)
 
     def test_recording_upload_metadata_only_blocked_by_os(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'OS_BLOCKED', 'audio_scope':'NONE', 'capability':'NONE', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':0, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':100, 'mime_type':'audio/mp4'}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'OS_BLOCKED', 'audio_scope':'NONE', 'capability':'NONE', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':0, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':100, 'mime_type':'audio/mp4'}, headers=HEADERS)
         self.assertEqual(r.status_code, 200, r.text)
 
     def test_recording_upload_metadata_only_unsupported(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'UNSUPPORTED', 'audio_scope':'NONE', 'capability':'NONE', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':0, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':100, 'mime_type':'audio/mp4'}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'UNSUPPORTED', 'audio_scope':'NONE', 'capability':'NONE', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':0, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':100, 'mime_type':'audio/mp4'}, headers=HEADERS)
         self.assertEqual(r.status_code, 200, r.text)
         
     def test_recording_upload_audio_checksum_mismatch(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'sha256':'wrongsha', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test audio')}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'sha256':'wrongsha', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test audio')}, headers=HEADERS)
         self.assertEqual(r.status_code, 400)
         self.assertIn('Checksum mismatch', r.text)
 
@@ -143,11 +143,11 @@ class DeviceApiTests(unittest.TestCase):
         
         with patch('urllib.request.urlopen') as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = None
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id':''}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id':''}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
             self.assertEqual(r.status_code, 200, r.text)
 
     def test_recording_upload_normal_recording_without_file(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
         self.assertEqual(r.status_code, 400)
         self.assertIn('Audio file is required', r.text)
 
@@ -158,7 +158,7 @@ class DeviceApiTests(unittest.TestCase):
         
         with patch('urllib.request.urlopen') as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = None
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec2', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id': '   '}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'bded0a3a-750a-480b-be47-66461bdc877e', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id': '   '}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
             self.assertEqual(r.status_code, 200, r.text)
         
         # Check what was passed to db
@@ -174,7 +174,7 @@ class DeviceApiTests(unittest.TestCase):
             def read(self): return b'{"message": "Some other error"}'
         err = urllib.error.HTTPError("url", 400, "Bad Request", {}, MockResponse())
         with patch('urllib.request.urlopen', side_effect=err):
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
             self.assertEqual(r.status_code, 502)
 
     def test_recording_upload_duplicate_id_conflict_returns_409(self):
@@ -191,7 +191,7 @@ class DeviceApiTests(unittest.TestCase):
             
         with patch('urllib.request.urlopen'):
             with patch.object(index, '_supabase', side_effect=mock_db_conflict):
-                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec1', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'c5aedb60-9018-4de7-ba9a-7fae02c53798', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r.status_code, 409)
 
     def test_recording_upload_call_id_resolution(self):
@@ -208,7 +208,7 @@ class DeviceApiTests(unittest.TestCase):
             
         with patch('urllib.request.urlopen'):
             with patch.object(index, '_supabase', side_effect=mock_db_resolution):
-                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_call_res', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id':'call_999'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': '4de3e615-8306-4da4-86de-163d4ea54231', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4', 'source_call_id':'call_999'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r.status_code, 200, r.text)
                 
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
@@ -216,7 +216,7 @@ class DeviceApiTests(unittest.TestCase):
         self.assertEqual(stored[-1][2]['employee_id'], 'EMP-001')
 
     def test_recording_upload_failed_during_stop_is_metadata_only(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_fail_stop', 'recording_source':'FAILED_DURING_STOP', 'audio_scope':'NONE', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'd2811ea8-5d80-4aa9-a3ed-17a8eb68baa6', 'recording_source':'FAILED_DURING_STOP', 'audio_scope':'NONE', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, headers=HEADERS)
         self.assertEqual(r.status_code, 200, r.text)
 
     def test_recording_upload_idempotent_retry_returns_200(self):
@@ -231,7 +231,7 @@ class DeviceApiTests(unittest.TestCase):
             
         with patch('urllib.request.urlopen') as mock_url:
             with patch.object(index, '_supabase', side_effect=mock_db_idempotency):
-                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_idem', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': '99e81b90-8a07-4034-96df-4cfe762ff7bd', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r.status_code, 200, r.text)
                 mock_url.assert_not_called() # ensure storage was skipped
 
@@ -246,7 +246,7 @@ class DeviceApiTests(unittest.TestCase):
             return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
             
         with patch.object(index, '_supabase', side_effect=mock_db_idempotency_diff_sha):
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_idem2', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': '95cff039-3bb7-4d28-a3ba-e5e8a121a678', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
             self.assertEqual(r.status_code, 409)
 
     def test_recording_upload_idempotent_different_device_returns_409(self):
@@ -260,7 +260,7 @@ class DeviceApiTests(unittest.TestCase):
             return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
             
         with patch.object(index, '_supabase', side_effect=mock_db_idempotency_diff_device):
-            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_idem3', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+            r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': '80ffcee0-8407-4f53-a9ea-5f48bca83156', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
             self.assertEqual(r.status_code, 409)
 
     def test_recording_upload_idempotent_retry_recovers_from_pending(self):
@@ -280,10 +280,10 @@ class DeviceApiTests(unittest.TestCase):
 
         with patch('urllib.request.urlopen', side_effect=err):
             with patch.object(index, '_supabase', side_effect=mock_db_idempotency_pending):
-                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_pending_retry', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'da36bdae-5c07-4dc9-aab8-5b01c75ec426', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r.status_code, 200, r.text)
 
-        stored = [c for c in self.calls if 'recording_id=eq.rec_pending_retry' in c[1]]
+        stored = [c for c in self.calls if 'recording_id=eq.da36bdae-5c07-4dc9-aab8-5b01c75ec426' in c[1]]
         self.assertEqual(stored[-1][0], 'PATCH')
         self.assertEqual(stored[-1][2]['upload_status'], 'SUCCESS')
 
@@ -301,35 +301,35 @@ class DeviceApiTests(unittest.TestCase):
             
         with patch('urllib.request.urlopen'):
             with patch.object(index, '_supabase', side_effect=mock_db_ambiguous):
-                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_ambiguous', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'abbc7fc5-6402-4bb2-8785-5412ba4317e4', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r.status_code, 200, r.text)
                 
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertIsNone(stored[-1][2]['employee_id'])
 
     def test_recording_upload_missing_sha256_returns_400(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_missing_sha', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'b3a96172-768d-49cd-8394-3180a7309704', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
         self.assertEqual(r.status_code, 400)
         self.assertIn('sha256 is required', r.text)
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertEqual(len(stored), 0)
 
     def test_recording_upload_checksum_mismatch_returns_400(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_bad_sha', 'sha256':'bad', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'ddeae5b9-fc7d-48eb-b374-e653659d3b22', 'sha256':'bad', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
         self.assertEqual(r.status_code, 400)
         self.assertIn('Checksum mismatch', r.text)
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertEqual(len(stored), 0)
 
     def test_recording_upload_empty_file_returns_400(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_empty', 'sha256':'any', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'')}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': '397012e9-1008-42c9-a02e-043358880012', 'sha256':'any', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'')}, headers=HEADERS)
         self.assertEqual(r.status_code, 400)
         self.assertIn('payload is empty', r.text)
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
         self.assertEqual(len(stored), 0)
 
     def test_recording_upload_unsupported_mime_returns_400(self):
-        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_mime', 'sha256':'any', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mpeg'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'b307c7f1-072d-4e12-9f31-ca7b3f1c3d11', 'sha256':'any', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mpeg'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
         self.assertEqual(r.status_code, 400)
         self.assertIn('Unsupported MIME type', r.text)
         stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
@@ -349,7 +349,7 @@ class DeviceApiTests(unittest.TestCase):
         with patch('urllib.request.urlopen'):
             with patch.object(index, '_supabase', side_effect=mock_db_fresh):
                 # 1. Malformed request (missing sha256)
-                r1 = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_retry_ok', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r1 = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'f6ff02bd-8c09-44af-ac03-143b68bd02e8', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r1.status_code, 400)
                 
                 # Verify no DB row created
@@ -357,11 +357,40 @@ class DeviceApiTests(unittest.TestCase):
                 self.assertEqual(len(stored1), 0)
                 
                 # 2. Corrected valid request
-                r2 = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'rec_retry_ok', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                r2 = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id': 'f6ff02bd-8c09-44af-ac03-143b68bd02e8', 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
                 self.assertEqual(r2.status_code, 200)
                 
                 # Verify DB row was now created properly
                 stored2 = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
                 self.assertEqual(len(stored2), 1)
+
+    def test_recording_upload_invalid_uuid_returns_400(self):
+        r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':'not-a-uuid', 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', b'test')}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Invalid recording_id format', r.text)
+        stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+        self.assertEqual(len(stored), 0)
+
+    def test_recording_upload_valid_uuid_uploads_normally(self):
+        import hashlib
+        import uuid
+        content = b'test audio'
+        sha = hashlib.sha256(content).hexdigest()
+        rec_uuid = str(uuid.uuid4())
+        
+        def mock_db_fresh(method, path, *args, **kwargs):
+            if 'fireblade_call_recordings?' in path and method == 'GET':
+                return (200, [])
+            self.calls.append((method, path, args[0] if args else None))
+            return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}]) if 'fireblade_device_credentials' in path else (200, [{'device_id':'MKT-001'}])
+            
+        with patch('urllib.request.urlopen') as mock_urlopen:
+            with patch.object(index, '_supabase', side_effect=mock_db_fresh):
+                r = self.client.post('/api/v3/recordings', data={'device_id':'MKT-001', 'recording_id':rec_uuid, 'sha256':sha, 'recording_source':'MEDIARECORDER_MIC', 'audio_scope':'EMPLOYEE_ONLY', 'capability':'MIC_ONLY', 'employee_notice_status':'NOT_CAPTURED', 'customer_consent_status':'UNKNOWN', 'consent_basis':'NOT_RECORDED', 'duration_ms':1000, 'started_at_epoch_ms':100, 'ended_at_epoch_ms':1100, 'mime_type':'audio/mp4'}, files={'file': ('rec.mp4', content)}, headers=HEADERS)
+                self.assertEqual(r.status_code, 200)
+                stored = [c for c in self.calls if c[1] == 'fireblade_call_recordings']
+                self.assertEqual(len(stored), 1)
+                self.assertEqual(stored[0][2]['recording_id'], rec_uuid)
+                mock_urlopen.assert_called_once()
 
 if __name__=='__main__':unittest.main()
