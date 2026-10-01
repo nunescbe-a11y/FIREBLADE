@@ -30,11 +30,11 @@
         <service android:name=".control.FirebladeMessagingService" android:exported="false">
             <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
         </service>
+        <service android:name=".CallRecordingService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge" />
         <receiver android:name=".control.ManagedConfigReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.APPLICATION_RESTRICTIONS_CHANGED" /></intent-filter>
         </receiver>
-        <service android:name=".CallRecordingService" android:exported="false" android:foregroundServiceType="microphone" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -98,5 +98,10 @@
                 <action android:name="android.intent.action.ACTION_SHUTDOWN" />
             </intent-filter>
         </receiver>
-    </application>
+            <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".ProfileActivity" android:exported="false" />
+        <activity android:name=".HistoryActivity" android:exported="false" />
+        <activity android:name=".CallbacksActivity" android:exported="false" />
+        <activity android:name=".EmployeeHomeActivity" android:exported="false" />
+        <activity android:name=".DeviceAdminActivity" android:exported="false" /></application>
 </manifest>

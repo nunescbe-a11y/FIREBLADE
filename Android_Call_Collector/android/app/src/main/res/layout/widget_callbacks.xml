@@ -26,7 +26,7 @@
             android:id="@+id/widgetOpen"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="View →"
+            android:text="View ->"
             android:textColor="#F59A9D"
             android:textSize="12sp"
             android:textStyle="bold" />

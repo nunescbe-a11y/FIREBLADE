@@ -8,13 +8,11 @@ import android.content.Context
 import android.content.Intent
 import android.view.View
 import android.widget.RemoteViews
+import com.nunes.callcollector.FirebladeDatePolicy
 import com.nunes.callcollector.MainActivity
 import com.nunes.callcollector.R
 import com.nunes.callcollector.callbacks.CallbackEngine
 import com.nunes.callcollector.callbacks.CallbackSnapshotStore
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class CallbackWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -57,6 +55,7 @@ object CallbackWidgetUpdater {
                 else -> "Callback${if (snapshot.pendingCount == 1) "" else "s"} required"
             }
         )
+
         val rows = listOf(
             Triple(R.id.widgetRow1, R.id.widgetName1, R.id.widgetAge1),
             Triple(R.id.widgetRow2, R.id.widgetName2, R.id.widgetAge2),
@@ -72,10 +71,11 @@ object CallbackWidgetUpdater {
                 views.setTextViewText(ageId, CallbackEngine.ageText(task.firstMissAt))
             }
         }
+
         val updated = CallbackSnapshotStore.updatedAt(context)
         views.setTextViewText(
             R.id.widgetUpdated,
-            if (updated > 0) "Updated ${SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(updated))}" else "Open Fireblade to refresh"
+            if (updated > 0) "Updated ${FirebladeDatePolicy.displayTime(updated)}" else "Open Fireblade to refresh"
         )
         views.setOnClickPendingIntent(R.id.widgetRoot, openApp(context, 7201))
         views.setOnClickPendingIntent(R.id.widgetOpen, openApp(context, 7202))
@@ -88,7 +88,9 @@ object CallbackWidgetUpdater {
         views.setTextViewText(R.id.widgetCompactCount, snapshot.pendingCount.toString())
         views.setTextViewText(
             R.id.widgetCompactLabel,
-            if (snapshot.pendingCount == 0) "All caught up" else if (snapshot.overdueCount > 0) "${snapshot.overdueCount} overdue" else "Callback required"
+            if (snapshot.pendingCount == 0) "All caught up"
+            else if (snapshot.overdueCount > 0) "${snapshot.overdueCount} overdue"
+            else "Callback required"
         )
         views.setOnClickPendingIntent(R.id.widgetCompactRoot, openApp(context, 7301))
         return views

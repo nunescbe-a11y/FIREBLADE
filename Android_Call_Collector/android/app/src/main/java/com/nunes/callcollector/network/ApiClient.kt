@@ -15,12 +15,9 @@ object ApiClient {
         if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
         if (config.deviceId.isBlank()) return SyncResult(false, emptySet(), "Device ID is empty")
         if (calls.isEmpty()) return SyncResult(true, emptySet(), "Nothing to upload")
+        if (!config.apiUrl.startsWith("https://")) return SyncResult(false, emptySet(), "Fireblade API must use HTTPS")
 
         return try {
-            // V1.2 first sends SIM/account metadata. If an older cloud API rejects
-            // the additional fields with a validation error, automatically retry
-            // the exact same calls using the legacy payload so call collection is
-            // never interrupted during a phased server upgrade.
             var http = post(config, buildPayload(config, calls, includeSimMetadata = true))
             var legacyFallback = false
             if (http.code == 400 || http.code == 422) {
@@ -29,7 +26,7 @@ object ApiClient {
             }
 
             if (http.code !in 200..299) {
-                return SyncResult(false, emptySet(), "HTTP ${http.code}: ${http.text}")
+                return SyncResult(false, emptySet(), "HTTP ${http.code}: ${http.text.take(300)}")
             }
 
             val json = JSONObject(http.text)
@@ -37,13 +34,17 @@ object ApiClient {
             val arr = json.optJSONArray("accepted_source_call_ids") ?: JSONArray()
             for (i in 0 until arr.length()) ids += arr.getString(i)
             val baseMessage = json.optString("message", "Uploaded")
-            SyncResult(true, ids, if (legacyFallback) "$baseMessage (legacy cloud compatibility)" else baseMessage)
+            SyncResult(true, ids, if (legacyFallback) "$baseMessage (legacy compatibility)" else baseMessage)
         } catch (e: Exception) {
             SyncResult(false, emptySet(), e.message ?: e.javaClass.simpleName)
         }
     }
 
-    private fun buildPayload(config: ConfigStore, calls: List<CallEntity>, includeSimMetadata: Boolean): JSONObject = JSONObject().apply {
+    private fun buildPayload(
+        config: ConfigStore,
+        calls: List<CallEntity>,
+        includeSimMetadata: Boolean
+    ): JSONObject = JSONObject().apply {
         put("device_id", config.deviceId)
         put("employee_name", config.employee)
         put("calls", JSONArray().apply {
@@ -72,9 +73,14 @@ object ApiClient {
             requestMethod = "POST"
             connectTimeout = 10000
             readTimeout = 15000
+            instanceFollowRedirects = false
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
+            if (config.deviceToken.isNotBlank()) {
+                setRequestProperty("X-Fireblade-Token", config.deviceToken)
+            }
         }
+
         return try {
             conn.outputStream.use { it.write(payload.toString().toByteArray()) }
             val code = conn.responseCode
@@ -88,6 +94,7 @@ object ApiClient {
 
     fun uploadRecording(config: ConfigStore, recording: com.nunes.callcollector.data.RecordingEntity): SyncResult {
         if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
+        if (!config.apiUrl.startsWith("https://")) return SyncResult(false, emptySet(), "Fireblade API must use HTTPS")
         if (config.deviceToken.isBlank()) return SyncResult(false, emptySet(), "Not enrolled")
         val file = recording.filePath?.let { java.io.File(it) }
         val hasFile = file != null && file.exists()
@@ -97,6 +104,7 @@ object ApiClient {
             requestMethod = "POST"
             connectTimeout = 15000
             readTimeout = 60000
+            instanceFollowRedirects = false
             doOutput = true
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
             setRequestProperty("X-Fireblade-Token", config.deviceToken)
@@ -105,7 +113,7 @@ object ApiClient {
         return try {
             conn.outputStream.use { os ->
                 val writer = os.writer(Charsets.UTF_8)
-                
+
                 fun writeField(name: String, value: String?) {
                     if (value == null) return
                     writer.write("--$boundary\r\n")
@@ -135,13 +143,13 @@ object ApiClient {
                     writer.write("Content-Disposition: form-data; name=\"file\"; filename=\"${file!!.name}\"\r\n")
                     writer.write("Content-Type: audio/mp4\r\n\r\n")
                     writer.flush()
-                    
+
                     file.inputStream().use { input ->
                         input.copyTo(os)
                     }
                     os.write("\r\n".toByteArray(Charsets.UTF_8))
                 }
-                
+
                 os.write("--$boundary--\r\n".toByteArray(Charsets.UTF_8))
                 os.flush()
             }
@@ -153,7 +161,7 @@ object ApiClient {
             if (code in 200..299) {
                 SyncResult(true, setOf(recording.recordingId), "Uploaded recording")
             } else {
-                SyncResult(false, emptySet(), "HTTP $code: $text")
+                SyncResult(false, emptySet(), "HTTP $code: ${text.take(300)}")
             }
         } catch (e: Exception) {
             SyncResult(false, emptySet(), e.message ?: e.javaClass.simpleName)

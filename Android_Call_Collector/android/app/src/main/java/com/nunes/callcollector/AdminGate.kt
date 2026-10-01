@@ -19,10 +19,10 @@ object AdminGate {
         val p=activity.getSharedPreferences("fireblade_admin",Context.MODE_PRIVATE)
         if(p.getLong("locked_until",0)>System.currentTimeMillis()){Toast.makeText(activity,"Try again in one minute",Toast.LENGTH_LONG).show();return}
         val configured=p.contains("pin_hash")
-        val field=EditText(activity).apply{inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD;hint=if(configured)"Admin PIN" else "Create a PIN (6–12 digits)";setPadding(32,24,32,24)}
+        val field=EditText(activity).apply{inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD;hint=if(configured)"Admin PIN" else "Create a PIN (6-12 digits)";setPadding(32,24,32,24)}
         AlertDialog.Builder(activity).setTitle(if(configured)"Admin access" else "Set Admin PIN").setView(field).setNegativeButton("Cancel",null).setPositiveButton(if(configured)"Unlock" else "Set PIN"){_,_->
             val pin=field.text.toString()
-            if(!pin.matches(Regex("[0-9]{6,12}"))){Toast.makeText(activity,"Use 6–12 digits",Toast.LENGTH_LONG).show();return@setPositiveButton}
+            if(!pin.matches(Regex("[0-9]{6,12}"))){Toast.makeText(activity,"Use 6-12 digits",Toast.LENGTH_LONG).show();return@setPositiveButton}
             activity.lifecycleScope.launch {
                 val valid=withContext(Dispatchers.Default){
                     if(!configured){

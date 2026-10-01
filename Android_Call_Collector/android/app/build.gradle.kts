@@ -18,8 +18,8 @@ android {
         applicationId = "com.nunes.callcollector"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.3.3"
+        versionCode = 14
+        versionName = "1.6.0"
     }
 
     buildFeatures { viewBinding = true }
@@ -63,6 +63,7 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.10.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Never substitute a new key: Android would reject the update or require uninstalling.

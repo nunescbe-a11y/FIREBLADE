@@ -6,8 +6,10 @@ import android.content.Intent
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED ||
-            intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+        if (
+            intent.action == Intent.ACTION_BOOT_COMPLETED ||
+            intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
+        ) {
             com.nunes.callcollector.control.UpdateWorker.schedule(context)
             com.nunes.callcollector.control.UpdateWorker.now(context)
             com.nunes.callcollector.control.CommandWorker.enqueue(context)
@@ -19,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
                 delaySeconds = 10L
             )
             AutomationScheduler.scheduleNextHealthPulse(context)
+            com.nunes.callcollector.callbacks.CallbackRefreshWorker.schedule(context)
             com.nunes.callcollector.callbacks.CallbackRefreshWorker.enqueue(context)
         }
     }

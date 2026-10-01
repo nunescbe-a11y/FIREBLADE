@@ -1,47 +1,65 @@
 package com.nunes.callcollector.callbacks
 
+import com.nunes.callcollector.FirebladeDatePolicy
 import com.nunes.callcollector.data.CallEntity
-import java.util.Calendar
 
 object CallbackEngine {
-    fun compute(calls: List<CallEntity>, now: Long = System.currentTimeMillis()): CallbackSummary {
-        if (calls.isEmpty()) return CallbackSummary(emptyList(), 0, now)
+    fun dayStart(epochMs: Long = System.currentTimeMillis()): Long =
+        FirebladeDatePolicy.startOfDay(epochMs)
 
-        val dayStart = Calendar.getInstance().run {
-            timeInMillis = now
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            timeInMillis
+    fun nextDayStart(startEpochMs: Long): Long =
+        FirebladeDatePolicy.nextDayStart(startEpochMs)
+
+    fun compute(calls: List<CallEntity>, now: Long = System.currentTimeMillis()): CallbackSummary {
+        val start = FirebladeDatePolicy.todayStart(now)
+        return computeForDay(calls, start, FirebladeDatePolicy.nextDayStart(start), now)
+    }
+
+    fun computeForDay(
+        calls: List<CallEntity>,
+        selectedDayStart: Long,
+        selectedDayEnd: Long = FirebladeDatePolicy.nextDayStart(selectedDayStart),
+        now: Long = System.currentTimeMillis()
+    ): CallbackSummary {
+        val start = FirebladeDatePolicy.startOfDay(selectedDayStart)
+        val end = selectedDayEnd.takeIf { it > start } ?: FirebladeDatePolicy.nextDayStart(start)
+        val selectedCalls = calls.filter { it.startedAtEpochMs >= start && it.startedAtEpochMs < end }
+        val incoming = selectedCalls.filter {
+            it.direction == "INCOMING_ANSWERED" || it.direction == "INCOMING_MISSED"
         }
+        val totalIncoming = incoming.size
+        val answered = incoming.count { it.direction == "INCOMING_ANSWERED" }
+        val missed = incoming.count { it.direction == "INCOMING_MISSED" }
 
         val pending = mutableListOf<CallbackTask>()
-        var resolvedToday = 0
+        var resolved = 0
 
         calls
             .filter { it.numberNormalized.isNotBlank() || it.numberRaw.isNotBlank() }
             .groupBy { it.numberNormalized.ifBlank { it.numberRaw } }
             .forEach { (key, group) ->
-                val ordered = group.sortedBy { it.startedAtEpochMs }
                 val openMisses = mutableListOf<CallEntity>()
                 var latestAttemptAt: Long? = null
 
-                ordered.forEach { call ->
+                group.sortedBy { it.startedAtEpochMs }.forEach { call ->
                     when (call.direction) {
-                        "INCOMING_MISSED" -> {
+                        "INCOMING_MISSED" -> if (call.startedAtEpochMs >= start && call.startedAtEpochMs < end) {
                             openMisses += call
                             if (openMisses.size == 1) latestAttemptAt = null
                         }
-                        "OUTGOING_UNANSWERED" -> {
-                            if (openMisses.isNotEmpty()) latestAttemptAt = call.startedAtEpochMs
+                        "OUTGOING_UNANSWERED" -> if (
+                            openMisses.isNotEmpty() &&
+                            call.startedAtEpochMs > openMisses.last().startedAtEpochMs
+                        ) {
+                            latestAttemptAt = call.startedAtEpochMs
                         }
-                        "OUTGOING_CONNECTED" -> {
-                            if (openMisses.isNotEmpty()) {
-                                if (call.startedAtEpochMs >= dayStart) resolvedToday++
-                                openMisses.clear()
-                                latestAttemptAt = null
-                            }
+                        "OUTGOING_CONNECTED", "INCOMING_ANSWERED" -> if (
+                            openMisses.isNotEmpty() &&
+                            call.startedAtEpochMs > openMisses.first().startedAtEpochMs
+                        ) {
+                            resolved++
+                            openMisses.clear()
+                            latestAttemptAt = null
                         }
                     }
                 }
@@ -53,7 +71,8 @@ object CallbackEngine {
                         key = key,
                         numberRaw = latest.numberRaw.ifBlank { first.numberRaw },
                         numberNormalized = latest.numberNormalized.ifBlank { first.numberNormalized },
-                        contactName = openMisses.asReversed().firstNotNullOfOrNull { it.contactName?.takeIf { name -> name.isNotBlank() } },
+                        contactName = openMisses.asReversed()
+                            .firstNotNullOfOrNull { it.contactName?.takeIf { n -> n.isNotBlank() } },
                         firstMissAt = first.startedAtEpochMs,
                         latestMissAt = latest.startedAtEpochMs,
                         missedCount = openMisses.size,
@@ -65,11 +84,13 @@ object CallbackEngine {
             }
 
         return CallbackSummary(
-            pending = pending.sortedWith(
-                compareBy<CallbackTask> { it.firstMissAt }.thenByDescending { it.missedCount }
-            ),
-            resolvedToday = resolvedToday,
-            generatedAt = now
+            pending = pending.sortedWith(compareBy<CallbackTask> { it.firstMissAt }.thenByDescending { it.missedCount }),
+            resolvedToday = resolved,
+            generatedAt = now,
+            totalIncomingCount = totalIncoming,
+            answeredCount = answered,
+            missedCount = missed,
+            selectedDayStart = start
         )
     }
 

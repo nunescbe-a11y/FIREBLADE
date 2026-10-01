@@ -65,25 +65,95 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvGreeting"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Good afternoon"
-            android:textColor="#17181B"
-            android:textSize="28sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvGreetingSub"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
             android:layout_marginBottom="20dp"
-            android:text="Here is what needs your attention."
-            android:textColor="#71717A"
-            android:textSize="15sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
+            <FrameLayout
+                android:id="@+id/employeeAvatarFrame"
+                android:layout_width="62dp"
+                android:layout_height="62dp"
+                android:layout_marginEnd="14dp">
+
+                <TextView
+                    android:id="@+id/tvEmployeeInitials"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_employee_avatar"
+                    android:gravity="center"
+                    android:text="FB"
+                    android:textColor="#34363A"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/ivEmployeePhoto"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_employee_avatar"
+                    android:clipToOutline="true"
+                    android:contentDescription="Employee profile photo"
+                    android:outlineProvider="background"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvGreeting"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Good afternoon"
+                    android:textColor="#17181B"
+                    android:textSize="28sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvGreetingSub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:text="Here is what needs your attention."
+                    android:textColor="#71717A"
+                    android:textSize="15sp" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/dateFilterRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="CALL WORKSPACE"
+                android:textColor="#8A8A91"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDateFilter"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:minWidth="0dp"
+                android:text="Today  v"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                app:cornerRadius="16dp" />
+        </LinearLayout>
         <LinearLayout
             android:id="@+id/heroCallbacks"
             android:layout_width="match_parent"
@@ -207,13 +277,60 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="7dp"
-                    android:text="—"
+                    android:text="-"
                     android:textColor="#17181B"
                     android:textSize="18sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/metricExtraRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_metric"
+                android:orientation="vertical"
+                android:padding="14dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Total incoming" android:textColor="#71717A" android:textSize="11sp" />
+                <TextView android:id="@+id/tvTotalIncoming" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0" android:textColor="#17181B" android:textSize="26sp" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="unique" android:textColor="#9A9AA1" android:textSize="9sp" />
+            </LinearLayout>
+
+            <Space android:layout_width="8dp" android:layout_height="1dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_metric"
+                android:orientation="vertical"
+                android:padding="14dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Answered" android:textColor="#71717A" android:textSize="11sp" />
+                <TextView android:id="@+id/tvAnsweredToday" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0" android:textColor="#087443" android:textSize="26sp" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="attempts" android:textColor="#9A9AA1" android:textSize="9sp" />
+            </LinearLayout>
+
+            <Space android:layout_width="8dp" android:layout_height="1dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_metric"
+                android:orientation="vertical"
+                android:padding="14dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Missed" android:textColor="#71717A" android:textSize="11sp" />
+                <TextView android:id="@+id/tvMissedToday" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0" android:textColor="#B42318" android:textSize="26sp" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="attempts" android:textColor="#9A9AA1" android:textSize="9sp" />
+            </LinearLayout>
+        </LinearLayout>
         <LinearLayout
             android:id="@+id/callbackSection"
             android:layout_width="match_parent"
@@ -250,7 +367,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="5dp"
-                android:text="A callback stays here until a return call is actually connected."
+                android:text="A missed call clears after a connected outgoing call, or when that customer calls again and you answer."
                 android:textColor="#71717A"
                 android:textSize="13sp" />
 
@@ -274,7 +391,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="✓"
+                    android:text="OK"
                     android:textColor="#0B8A57"
                     android:textSize="30sp"
                     android:textStyle="bold" />

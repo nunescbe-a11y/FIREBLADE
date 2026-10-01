@@ -72,7 +72,7 @@ object FollowUpNotifier {
         if (summary.pending.size >= 2 && (dueCount > 0 || overdue > 0)) {
             val text = buildString {
                 append("${summary.pending.size} callbacks still pending")
-                if (overdue > 0) append(" • $overdue overdue")
+                if (overdue > 0) append("  -  $overdue overdue")
             }
             val open = PendingIntent.getActivity(
                 context,

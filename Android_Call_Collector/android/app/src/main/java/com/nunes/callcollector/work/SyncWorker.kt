@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.nunes.callcollector.ConfigStore
 import com.nunes.callcollector.SyncStateStore
+import com.nunes.callcollector.callbacks.CallbackRefreshWorker
 import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.network.ApiClient
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,11 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             return@withContext Result.success()
         }
 
+        if (config.deviceAccessState == "BLOCKED") {
+            state.set("BLOCKED", config.deviceAccessMessage.ifBlank { "Device assignment requires Fireblade Admin attention." })
+            return@withContext Result.success()
+        }
+
         try {
             var batches = 0
             while (batches < 20) {
@@ -31,7 +37,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                     break
                 }
 
-                state.set("SYNCING", "Uploading ${pending.size} pending call${if (pending.size == 1) "" else "s"}…")
+                state.set("SYNCING", "Uploading ${pending.size} pending call${if (pending.size == 1) "" else "s"}...")
                 val result = ApiClient.upload(config, pending)
                 if (!result.ok) {
                     state.set("RETRYING", result.message)
@@ -66,20 +72,23 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 } else {
                     recordingDao.updateStatus(listOf(recording.localId), "FAILED")
                     state.set("RETRYING", recResult.message)
+                    CallbackRefreshWorker.enqueue(applicationContext)
                     return@withContext Result.retry()
                 }
             }
-            
+
             if (dao.pendingCount() > 0 || pendingRecordings.size > recordingsUploaded) {
                 state.set("QUEUED", "More records remain; another automatic sync will continue.")
                 com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
             } else {
                 state.synced()
-                com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, eventType = "CALL_SYNC")
+                com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, "CALL_SYNC")
             }
+            CallbackRefreshWorker.enqueue(applicationContext)
             Result.success()
         } catch (e: Exception) {
             state.set("RETRYING", e.message ?: e.javaClass.simpleName)
+            CallbackRefreshWorker.enqueue(applicationContext)
             Result.retry()
         }
     }

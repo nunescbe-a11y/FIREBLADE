@@ -1,9 +1,9 @@
 package com.nunes.callcollector.callbacks
 
 import android.content.Context
+import com.nunes.callcollector.FirebladeDatePolicy
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.Calendar
 
 object CallbackSnapshotStore {
     private const val PREFS = "fireblade_callback_snapshot"
@@ -14,7 +14,7 @@ object CallbackSnapshotStore {
 
     fun save(context: Context, summary: CallbackSummary) {
         val array = JSONArray()
-        summary.pending.take(12).forEach { task ->
+        summary.pending.forEach { task ->
             array.put(
                 JSONObject()
                     .put("key", task.key)
@@ -29,10 +29,16 @@ object CallbackSnapshotStore {
                     .put("sim_slot_index", task.simSlotIndex ?: JSONObject.NULL)
             )
         }
+
         val root = JSONObject()
             .put("pending", array)
             .put("resolved_today", summary.resolvedToday)
             .put("generated_at", summary.generatedAt)
+            .put("total_incoming", summary.totalIncomingCount)
+            .put("answered", summary.answeredCount)
+            .put("missed", summary.missedCount)
+            .put("selected_day_start", summary.selectedDayStart)
+
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_JSON, root.toString())
@@ -43,7 +49,9 @@ object CallbackSnapshotStore {
 
     fun read(context: Context): CallbackSummary {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_JSON, null) ?: return CallbackSummary(emptyList(), 0, 0L)
+            .getString(KEY_JSON, null)
+            ?: return CallbackSummary(emptyList(), 0, 0L)
+
         return try {
             val root = JSONObject(raw)
             val array = root.optJSONArray("pending") ?: JSONArray()
@@ -55,7 +63,8 @@ object CallbackSnapshotStore {
                             key = o.getString("key"),
                             numberRaw = o.optString("number_raw"),
                             numberNormalized = o.optString("number_normalized"),
-                            contactName = o.optString("contact_name").takeIf { it.isNotBlank() && it != "null" },
+                            contactName = o.optString("contact_name")
+                                .takeIf { it.isNotBlank() && it != "null" },
                             firstMissAt = o.getLong("first_miss_at"),
                             latestMissAt = o.getLong("latest_miss_at"),
                             missedCount = o.getInt("missed_count"),
@@ -66,24 +75,25 @@ object CallbackSnapshotStore {
                     )
                 }
             }
-            CallbackSummary(tasks, root.optInt("resolved_today"), root.optLong("generated_at"))
+            CallbackSummary(
+                pending = tasks,
+                resolvedToday = root.optInt("resolved_today"),
+                generatedAt = root.optLong("generated_at"),
+                totalIncomingCount = root.optInt("total_incoming"),
+                answeredCount = root.optInt("answered"),
+                missedCount = root.optInt("missed"),
+                selectedDayStart = root.optLong("selected_day_start")
+            )
         } catch (_: Exception) {
             CallbackSummary(emptyList(), 0, 0L)
         }
     }
 
-
     fun trackingStart(context: Context): Long {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val existing = prefs.getLong(KEY_TRACKING_START, 0L)
         if (existing > 0L) return existing
-        val start = Calendar.getInstance().run {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            timeInMillis
-        }
+        val start = FirebladeDatePolicy.todayStart()
         prefs.edit().putLong(KEY_TRACKING_START, start).apply()
         return start
     }
@@ -92,17 +102,20 @@ object CallbackSnapshotStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_UPDATED, 0L)
 
     fun activeKeys(context: Context): Set<String> =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(KEY_ACTIVE, emptySet())?.toSet().orEmpty()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_ACTIVE, emptySet())?.toSet().orEmpty()
 
     fun notificationStep(context: Context, key: String): Int =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("notify_${safe(key)}", 0)
 
     fun setNotificationStep(context: Context, key: String, step: Int) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("notify_${safe(key)}", step).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt("notify_${safe(key)}", step).apply()
     }
 
     fun clearNotificationStep(context: Context, key: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("notify_${safe(key)}").apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().remove("notify_${safe(key)}").apply()
     }
 
     private fun safe(key: String) = key.hashCode().toUInt().toString()

@@ -12,7 +12,6 @@ class HealthWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         val isHeartbeat = eventType.equals("HEARTBEAT", ignoreCase = true)
         try {
             HealthReporter.upload(applicationContext, eventType)
-            com.nunes.callcollector.control.CommandWorker.enqueue(applicationContext)
         } finally {
             // A one-time work chain gives a roughly five-minute health pulse on many
             // devices. Android may defer background work under Doze/battery policies,
