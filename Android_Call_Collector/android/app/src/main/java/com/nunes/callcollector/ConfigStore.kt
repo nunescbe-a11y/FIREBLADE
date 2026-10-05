@@ -81,6 +81,7 @@ class ConfigStore(context: Context) {
             .remove("workspace_json")
             .remove("workspace_date")
             .remove("workspace_cached_at")
+            .remove("department")
             .putString("device_access_state", "UNKNOWN")
             .putString("device_access_message", "")
             .apply()
