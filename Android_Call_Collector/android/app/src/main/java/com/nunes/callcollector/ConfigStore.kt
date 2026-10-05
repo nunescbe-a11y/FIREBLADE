@@ -34,6 +34,10 @@ class ConfigStore(context: Context) {
         get() = p.getString("employee", "") ?: ""
         set(v) = p.edit().putString("employee", v.trim()).apply()
 
+    var department: String
+        get() = p.getString("department", "") ?: ""
+        set(v) = p.edit().putString("department", v.trim().uppercase()).apply()
+
     var apiUrl: String
         get() = p.getString("api_url", "") ?: ""
         set(v) = p.edit().putString("api_url", v.trim().trimEnd('/')).apply()
