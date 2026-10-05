@@ -93,7 +93,10 @@ object LiveCallStore {
         editor
             .putString("state", "CONNECTED")
             .putString("direction", direction)
-            .putLong("connected_at", if (current?.connectedAtEpochMs ?: 0L > 0L) current!!.connectedAtEpochMs else now)
+            .putLong(
+                "connected_at",
+                if ((current?.connectedAtEpochMs ?: 0L) > 0L) current!!.connectedAtEpochMs else now
+            )
 
         if (!number.isNullOrBlank()) editor.putString("phone_number", number)
         editor.apply()
