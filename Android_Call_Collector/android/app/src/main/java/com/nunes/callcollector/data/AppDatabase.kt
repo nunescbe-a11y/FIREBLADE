@@ -7,10 +7,15 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [CallEntity::class, RecordingEntity::class], version = 3, exportSchema = false)
+@Database(
+    entities = [CallEntity::class, RecordingEntity::class, ShaneCallDetailEntity::class],
+    version = 4,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun callDao(): CallDao
     abstract fun recordingDao(): RecordingDao
+    abstract fun shaneCallDetailDao(): ShaneCallDetailDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -53,13 +58,39 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `shane_call_details` (" +
+                    "`localId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`detailId` TEXT NOT NULL, " +
+                    "`sourceCallId` TEXT, " +
+                    "`phoneNumberRaw` TEXT NOT NULL, " +
+                    "`phoneNumberNormalized` TEXT NOT NULL, " +
+                    "`callStartedAtEpochMs` INTEGER NOT NULL, " +
+                    "`customerName` TEXT NOT NULL, " +
+                    "`productAsked` TEXT NOT NULL, " +
+                    "`location` TEXT NOT NULL, " +
+                    "`notes` TEXT NOT NULL, " +
+                    "`veryUrgent` INTEGER NOT NULL, " +
+                    "`synced` INTEGER NOT NULL, " +
+                    "`createdAtEpochMs` INTEGER NOT NULL, " +
+                    "`updatedAtEpochMs` INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_shane_call_details_detailId` ON `shane_call_details` (`detailId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shane_call_details_sourceCallId` ON `shane_call_details` (`sourceCallId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shane_call_details_phoneNumberNormalized` ON `shane_call_details` (`phoneNumberNormalized`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shane_call_details_callStartedAtEpochMs` ON `shane_call_details` (`callStartedAtEpochMs`)")
+            }
+        }
+
         fun get(context: Context): AppDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "nunes_calls.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
                 .also { INSTANCE = it }
         }
