@@ -110,6 +110,54 @@ def install_routes(app, db, health_model):
         db("POST", "fireblade_push_tokens?on_conflict=device_id", {"device_id": device_id, "token": body.token, "updated_at": utcnow().isoformat()}, "resolution=merge-duplicates,return=minimal")
         return {"ok": True}
 
+    @app.get("/api/v3/devices/{device_id}/identity")
+    def device_identity(device_id: str, x_fireblade_token: Optional[str] = Header(default=None)):
+        device_id = device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+
+        _, assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id&device_id=eq." + quote(device_id, safe="") +
+            "&assigned_until=is.null&limit=2"
+        )
+        if not assignments:
+            raise HTTPException(409, "Device has no active employee assignment")
+        if len(assignments) != 1:
+            raise HTTPException(409, "Device has multiple active employee assignments")
+
+        employee_id = assignments[0].get("employee_id")
+        _, employees = db(
+            "GET",
+            "fireblade_employees?select=employee_id,employee_name,department_id"
+            "&employee_id=eq." + quote(str(employee_id), safe="") +
+            "&active=eq.true&limit=1"
+        )
+        if not employees:
+            raise HTTPException(409, "Assigned employee is inactive or missing")
+
+        employee = employees[0]
+        department_name = ""
+        department_id = employee.get("department_id")
+        if department_id:
+            _, departments = db(
+                "GET",
+                "fireblade_departments?select=name&id=eq." +
+                quote(str(department_id), safe="") +
+                "&active=eq.true&limit=1"
+            )
+            if departments:
+                department_name = str(departments[0].get("name", "")).strip()
+
+        return {
+            "device_id": device_id,
+            "employee": {
+                "employee_id": employee.get("employee_id") or "",
+                "employee_name": employee.get("employee_name") or "",
+                "department_name": department_name
+            }
+        }
+
     @app.get("/api/v3/devices/{device_id}/commands")
     def commands(device_id: str, x_fireblade_token: Optional[str] = Header(default=None)):
         authorize(db, device_id, x_fireblade_token)
