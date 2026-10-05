@@ -1,7 +1,10 @@
 package com.nunes.callcollector
 
 import android.app.DatePickerDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -10,6 +13,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.nunes.callcollector.control.DeviceHttpError
 import com.nunes.callcollector.control.EmployeeCall
@@ -30,6 +34,14 @@ class HistoryActivity : AppCompatActivity() {
     private val dateStore by lazy { DateSelectionStore(this) }
     private var selectedDayStart = 0L
     private var refreshJob: Job? = null
+    private var liveReceiverRegistered = false
+    private val liveCallReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == LiveCallStore.ACTION_CHANGED && ShaneMode.isEnabled(this@HistoryActivity)) {
+                refreshShaneLocalFirst()
+            }
+        }
+    }
 
     private enum class Source { SERVER, CACHE, LOCAL, BLOCKED }
 
@@ -52,10 +64,31 @@ class HistoryActivity : AppCompatActivity() {
         b.btnDate.setOnClickListener { openDatePicker() }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!liveReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                liveCallReceiver,
+                IntentFilter(LiveCallStore.ACTION_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            liveReceiverRegistered = true
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         selectedDayStart = dateStore.selectedDayStart()
         refresh()
+    }
+
+    override fun onStop() {
+        if (liveReceiverRegistered) {
+            unregisterReceiver(liveCallReceiver)
+            liveReceiverRegistered = false
+        }
+        super.onStop()
     }
 
     override fun onDestroy() {
