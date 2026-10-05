@@ -78,6 +78,21 @@ class UpdateReport(BaseModel):
     message: str = Field(default="", max_length=300)
 
 
+class ShaneCallDetail(BaseModel):
+    device_id: str = Field(min_length=1, max_length=100)
+    detail_id: str = Field(min_length=36, max_length=36)
+    source_call_id: Optional[str] = Field(default=None, max_length=128)
+    phone_number_raw: str = Field(default="", max_length=100)
+    phone_number_normalized: str = Field(default="", max_length=100)
+    call_started_at_epoch_ms: int = Field(gt=0)
+    customer_name: str = Field(default="", max_length=200)
+    product_asked: str = Field(default="", max_length=300)
+    location: str = Field(default="", max_length=200)
+    notes: str = Field(default="", max_length=4000)
+    very_urgent: bool = False
+    updated_at_epoch_ms: int = Field(gt=0)
+
+
 def install_routes(app, db, health_model):
     @app.post("/api/v3/enroll")
     def enroll(body: Enrollment):
@@ -169,6 +184,117 @@ def install_routes(app, db, health_model):
                 raise HTTPException(400, "Invalid release")
         db("POST", "fireblade_update_status?on_conflict=device_id", {"device_id": device_id, **body.model_dump(), "last_checked_at": utcnow().isoformat()}, "resolution=merge-duplicates,return=minimal")
         return {"ok": True}
+
+    @app.post("/api/v3/shane/call-details")
+    def save_shane_call_details(
+        body: ShaneCallDetail,
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        device_id = body.device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+
+        import uuid
+        try:
+            detail_id = str(uuid.UUID(body.detail_id))
+        except ValueError:
+            raise HTTPException(400, "Invalid detail_id format")
+
+        source_call_id = body.source_call_id.strip() if body.source_call_id else None
+        if source_call_id == "":
+            source_call_id = None
+
+        started_iso = datetime.fromtimestamp(
+            body.call_started_at_epoch_ms / 1000.0,
+            tz=timezone.utc
+        ).isoformat()
+        _, assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id&device_id=eq." + quote(device_id, safe="") +
+            "&assigned_from=lte." + quote(started_iso, safe="") +
+            "&or=(assigned_until.is.null,assigned_until.gte." + quote(started_iso, safe="") + ")"
+        )
+        if not assignments or len(assignments) != 1:
+            raise HTTPException(409, "Shane call details require one active employee assignment")
+
+        employee_id = assignments[0].get("employee_id")
+        _, employees = db(
+            "GET",
+            "fireblade_employees?select=employee_id,department_id"
+            "&employee_id=eq." + quote(employee_id, safe="") +
+            "&active=eq.true&limit=1"
+        )
+        if not employees or not employees[0].get("department_id"):
+            raise HTTPException(403, "Employee department is not configured")
+
+        department_id = employees[0]["department_id"]
+        _, departments = db(
+            "GET",
+            "fireblade_departments?select=name&id=eq." +
+            quote(str(department_id), safe="") +
+            "&active=eq.true&limit=1"
+        )
+        department_name = (
+            str(departments[0].get("name", "")).strip().upper()
+            if departments else ""
+        )
+        if department_name != "SHANE":
+            raise HTTPException(403, "Shane call details are restricted to the SHANE department")
+
+        call_id = None
+        if source_call_id:
+            _, calls = db(
+                "GET",
+                "phase0_calls?select=id&device_id=eq." + quote(device_id, safe="") +
+                "&source_call_id=eq." + quote(source_call_id, safe="") +
+                "&limit=1"
+            )
+            if calls:
+                call_id = calls[0]["id"]
+
+        _, existing = db(
+            "GET",
+            "fireblade_shane_call_details?"
+            "select=device_id,client_updated_at_epoch_ms"
+            "&detail_id=eq." + quote(detail_id, safe="") +
+            "&limit=1"
+        )
+        if existing:
+            row = existing[0]
+            if row.get("device_id") != device_id:
+                raise HTTPException(409, "Duplicate detail ID with different device")
+            if int(row.get("client_updated_at_epoch_ms") or 0) > body.updated_at_epoch_ms:
+                return {"ok": True, "detail_id": detail_id, "stale_ignored": True}
+
+        record = {
+            "detail_id": detail_id,
+            "call_id": call_id,
+            "source_call_id": source_call_id,
+            "device_id": device_id,
+            "employee_id": employee_id,
+            "phone_number_raw": body.phone_number_raw.strip(),
+            "phone_number_normalized": body.phone_number_normalized.strip(),
+            "call_started_at_epoch_ms": body.call_started_at_epoch_ms,
+            "customer_name": body.customer_name.strip(),
+            "product_asked": body.product_asked.strip(),
+            "location": body.location.strip(),
+            "notes": body.notes.strip(),
+            "very_urgent": body.very_urgent,
+            "client_updated_at_epoch_ms": body.updated_at_epoch_ms,
+            "updated_at": utcnow().isoformat()
+        }
+
+        if existing:
+            db(
+                "PATCH",
+                "fireblade_shane_call_details?detail_id=eq." + quote(detail_id, safe=""),
+                record
+            )
+        else:
+            record["created_at"] = utcnow().isoformat()
+            db("POST", "fireblade_shane_call_details", record)
+
+        return {"ok": True, "detail_id": detail_id}
 
     @app.post("/api/v3/recordings")
     def upload_recording(
