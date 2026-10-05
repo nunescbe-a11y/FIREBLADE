@@ -25,7 +25,14 @@ data class LiveCallSnapshot(
 }
 
 object LiveCallStore {
+    const val ACTION_CHANGED = "com.nunes.callcollector.SHANE_LIVE_CALL_CHANGED"
     private const val PREFS = "fireblade_live_call"
+
+    private fun notifyChanged(context: Context) {
+        context.applicationContext.sendBroadcast(
+            android.content.Intent(ACTION_CHANGED).setPackage(context.packageName)
+        )
+    }
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -50,6 +57,7 @@ object LiveCallStore {
         if (current != null && current.state == "RINGING" && current.direction == "INCOMING") {
             if (!number.isNullOrBlank() && current.phoneNumber.isBlank()) {
                 prefs(context).edit().putString("phone_number", number).apply()
+                notifyChanged(context)
             }
             return
         }
@@ -64,6 +72,7 @@ object LiveCallStore {
             .putLong("connected_at", 0L)
             .putLong("ended_at", 0L)
             .apply()
+        notifyChanged(context)
     }
 
     fun onOutgoingNumber(context: Context, number: String?) {
@@ -82,6 +91,7 @@ object LiveCallStore {
         } else if (!number.isNullOrBlank() && current.phoneNumber.isBlank()) {
             prefs(context).edit().putString("phone_number", number).apply()
         }
+        notifyChanged(context)
     }
 
     fun onOffhook(context: Context, previousState: String, number: String?) {
@@ -108,6 +118,7 @@ object LiveCallStore {
 
         if (!number.isNullOrBlank()) editor.putString("phone_number", number)
         editor.apply()
+        notifyChanged(context)
     }
 
     fun enrichNumber(context: Context, number: String?) {
@@ -115,6 +126,7 @@ object LiveCallStore {
         val current = snapshot(context) ?: return
         if (current.phoneNumber.isBlank()) {
             prefs(context).edit().putString("phone_number", number).apply()
+            notifyChanged(context)
         }
     }
 
@@ -124,6 +136,7 @@ object LiveCallStore {
             .putString("state", "COMPLETED")
             .putLong("ended_at", System.currentTimeMillis())
             .apply()
+        notifyChanged(context)
     }
 
     fun clearIfMatched(context: Context, calls: List<CallEntity>) {
@@ -137,6 +150,9 @@ object LiveCallStore {
                 call.numberRaw == live.phoneNumber
             closeInTime && numberMatches
         }
-        if (matched) prefs(context).edit().clear().apply()
+        if (matched) {
+            prefs(context).edit().clear().apply()
+            notifyChanged(context)
+        }
     }
 }
