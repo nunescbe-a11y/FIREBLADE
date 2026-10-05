@@ -1,9 +1,12 @@
 package com.nunes.callcollector
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.widget.CheckBox
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.nunes.callcollector.data.AppDatabase
@@ -223,21 +226,91 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     }
 
     private fun openWhatsApp(message: String) {
+        val normalAvailable = canShareTo(WHATSAPP_PACKAGE)
+        val businessAvailable = canShareTo(WHATSAPP_BUSINESS_PACKAGE)
+        val prefs = getSharedPreferences(WHATSAPP_PREFS, Context.MODE_PRIVATE)
+        val remembered = prefs.getString(KEY_WHATSAPP_PACKAGE, null)
+
+        if (!remembered.isNullOrBlank()) {
+            if (canShareTo(remembered) && launchWhatsAppPackage(message, remembered)) {
+                return
+            }
+            prefs.edit().remove(KEY_WHATSAPP_PACKAGE).apply()
+        }
+
+        when {
+            normalAvailable && businessAvailable -> showWhatsAppChoice(message)
+            businessAvailable -> launchWhatsAppPackage(message, WHATSAPP_BUSINESS_PACKAGE)
+            normalAvailable -> launchWhatsAppPackage(message, WHATSAPP_PACKAGE)
+            else -> openGenericShare(message)
+        }
+    }
+
+    private fun showWhatsAppChoice(message: String) {
+        val options = arrayOf("WhatsApp", "WhatsApp Business")
+        var selected = 0
+        val rememberChoice = CheckBox(this).apply {
+            text = "Remember my choice"
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 8, pad, 8)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Send with")
+            .setSingleChoiceItems(options, selected) { _, which ->
+                selected = which
+            }
+            .setView(rememberChoice)
+            .setPositiveButton("Open") { _, _ ->
+                val packageName =
+                    if (selected == 1) WHATSAPP_BUSINESS_PACKAGE else WHATSAPP_PACKAGE
+                if (rememberChoice.isChecked) {
+                    getSharedPreferences(WHATSAPP_PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .putString(KEY_WHATSAPP_PACKAGE, packageName)
+                        .apply()
+                }
+                if (!launchWhatsAppPackage(message, packageName)) {
+                    getSharedPreferences(WHATSAPP_PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .remove(KEY_WHATSAPP_PACKAGE)
+                        .apply()
+                    openGenericShare(message)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun canShareTo(packageName: String): Boolean {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            setPackage(packageName)
+        }
+        return intent.resolveActivity(packageManager) != null
+    }
+
+    private fun launchWhatsAppPackage(message: String, packageName: String): Boolean {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+            setPackage(packageName)
+        }
+        return try {
+            startActivity(intent)
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun openGenericShare(message: String) {
         val base = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, message)
         }
-
-        try {
-            startActivity(Intent(base).setPackage("com.whatsapp"))
-            return
-        } catch (_: ActivityNotFoundException) { }
-
-        try {
-            startActivity(Intent(base).setPackage("com.whatsapp.w4b"))
-            return
-        } catch (_: ActivityNotFoundException) { }
-
         try {
             startActivity(Intent.createChooser(base, "Send customer details"))
         } catch (_: Exception) {
@@ -253,6 +326,11 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     )
 
     companion object {
+        private const val WHATSAPP_PACKAGE = "com.whatsapp"
+        private const val WHATSAPP_BUSINESS_PACKAGE = "com.whatsapp.w4b"
+        private const val WHATSAPP_PREFS = "shane_whatsapp_preferences"
+        private const val KEY_WHATSAPP_PACKAGE = "preferred_package"
+
         const val EXTRA_OPEN_LATEST_SPOKEN = "open_latest_spoken"
         const val EXTRA_SOURCE_CALL_ID = "source_call_id"
         const val EXTRA_PHONE_RAW = "phone_raw"
