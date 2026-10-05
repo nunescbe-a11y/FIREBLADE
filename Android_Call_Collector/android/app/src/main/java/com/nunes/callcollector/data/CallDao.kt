@@ -13,6 +13,14 @@ interface CallDao {
     @Query("SELECT * FROM calls ORDER BY startedAtEpochMs DESC LIMIT :limit")
     suspend fun latest(limit: Int = 20): List<CallEntity>
 
+    @Query(
+        "SELECT * FROM calls " +
+            "WHERE durationSeconds > 0 " +
+            "AND direction IN ('INCOMING_ANSWERED', 'OUTGOING_CONNECTED') " +
+            "ORDER BY startedAtEpochMs DESC LIMIT 1"
+    )
+    suspend fun latestSpoken(): CallEntity?
+
     @Query("SELECT * FROM calls WHERE synced = 0 ORDER BY startedAtEpochMs ASC LIMIT :limit")
     suspend fun pending(limit: Int = 200): List<CallEntity>
 
