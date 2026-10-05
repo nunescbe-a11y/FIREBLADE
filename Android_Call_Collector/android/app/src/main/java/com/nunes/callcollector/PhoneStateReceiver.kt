@@ -29,7 +29,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
         val direction =
             if (previous == TelephonyManager.EXTRA_STATE_RINGING) "INCOMING" else "OUTGOING"
 
-        if (ShaneMode.isEnabled(context)) {
+        val shaneEnabled = ShaneMode.isEnabled(context)
+
+        if (shaneEnabled) {
             when (state) {
                 TelephonyManager.EXTRA_STATE_RINGING -> {
                     LiveCallStore.onRinging(context, phoneNumber)
@@ -48,7 +50,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             } catch (_: Exception) { }
         }
 
-        if (state == TelephonyManager.EXTRA_STATE_OFFHOOK) {
+        if (state == TelephonyManager.EXTRA_STATE_OFFHOOK && !shaneEnabled) {
             val startIntent = Intent(context, CallRecordingService::class.java).apply {
                 action = CallRecordingService.ACTION_START
                 putExtra("PHONE_NUMBER", phoneNumber)
@@ -94,16 +96,18 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
 
         if (state == TelephonyManager.EXTRA_STATE_IDLE && callHadActivity) {
-            val stopIntent = Intent(context, CallRecordingService::class.java).apply {
-                action = CallRecordingService.ACTION_STOP
-            }
-            try {
-                context.startService(stopIntent)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            if (!shaneEnabled) {
+                val stopIntent = Intent(context, CallRecordingService::class.java).apply {
+                    action = CallRecordingService.ACTION_STOP
+                }
+                try {
+                    context.startService(stopIntent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
 
-            if (ShaneMode.isEnabled(context)) {
+            if (shaneEnabled) {
                 captureShaneCallImmediately(context)
                 AutomationScheduler.enqueueCapture(context, delaySeconds = 2L)
                 AutomationScheduler.enqueueCapture(context, delaySeconds = 10L)
