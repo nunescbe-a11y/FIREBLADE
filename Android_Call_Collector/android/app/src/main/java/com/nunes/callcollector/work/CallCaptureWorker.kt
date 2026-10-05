@@ -35,8 +35,14 @@ class CallCaptureWorker(appContext: Context, params: WorkerParameters) :
             dao.deleteBefore(BackfillPolicy.START_EPOCH_MS)
             val rows = CallLogScanner(applicationContext).scan(10000)
             val inserted = dao.insertAll(rows).count { it > 0L }
+            com.nunes.callcollector.ShaneCallReconciler.reconcile(applicationContext, rows)
+            com.nunes.callcollector.LiveCallStore.clearIfMatched(applicationContext, rows)
             val pending = dao.pendingCount()
+            val pendingShane = AppDatabase.get(applicationContext).shaneCallDetailDao().pendingCount()
             com.nunes.callcollector.callbacks.CallbackRefreshWorker.enqueue(applicationContext)
+            try {
+                com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(applicationContext)
+            } catch (_: Exception) { }
 
             val pendingRecordings = AppDatabase.get(applicationContext).recordingDao().pending(100)
             if (pendingRecordings.isNotEmpty()) {
@@ -66,8 +72,13 @@ class CallCaptureWorker(appContext: Context, params: WorkerParameters) :
                 }
             }
 
-            if (pending > 0 || pendingRecordings.isNotEmpty()) {
-                state.set("QUEUED", "$pending call(s) and ${pendingRecordings.size} recording(s) waiting.")
+            if (pending > 0 || pendingRecordings.isNotEmpty() || pendingShane > 0) {
+                state.set(
+                    "QUEUED",
+                    pending.toString() + " call(s), " +
+                        pendingRecordings.size + " recording(s), and " +
+                        pendingShane + " Shane detail(s) waiting."
+                )
                 AutomationScheduler.enqueueSync(applicationContext)
             } else if (inserted > 0) {
                 state.synced("Call log checked. Nothing pending.")
