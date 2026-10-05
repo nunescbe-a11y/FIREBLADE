@@ -46,6 +46,14 @@ object LiveCallStore {
     }
 
     fun onRinging(context: Context, number: String?) {
+        val current = snapshot(context)
+        if (current != null && current.state == "RINGING" && current.direction == "INCOMING") {
+            if (!number.isNullOrBlank() && current.phoneNumber.isBlank()) {
+                prefs(context).edit().putString("phone_number", number).apply()
+            }
+            return
+        }
+
         val now = System.currentTimeMillis()
         prefs(context).edit()
             .putString("session_id", UUID.randomUUID().toString())
