@@ -34,4 +34,36 @@
         android:textColor="#F59A9D"
         android:textSize="11sp"
         android:textStyle="bold" />
+
+    <LinearLayout
+        android:id="@+id/widgetCompactActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widgetCompactAddDetails"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:background="@drawable/bg_widget_action"
+            android:gravity="center"
+            android:text="Add Details"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widgetCompactOpenPage"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:layout_marginTop="5dp"
+            android:background="@drawable/bg_widget_action"
+            android:gravity="center"
+            android:text="Open Page"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 </LinearLayout>
