@@ -75,6 +75,7 @@ object EmployeeWorkspaceApi {
             val response = DeviceApi.request(config, path)
             val workspace = parse(response, normalizedDay)
             config.employee = workspace.employeeName
+            config.department = workspace.departmentName.orEmpty()
             config.workspaceJson = response.toString()
             config.workspaceDate = date
             config.workspaceCachedAt = System.currentTimeMillis()
