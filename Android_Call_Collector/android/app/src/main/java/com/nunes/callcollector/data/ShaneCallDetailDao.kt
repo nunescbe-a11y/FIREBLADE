@@ -47,6 +47,13 @@ interface ShaneCallDetailDao {
     @Query("SELECT * FROM shane_call_details WHERE synced = 0 ORDER BY updatedAtEpochMs ASC LIMIT :limit")
     suspend fun pending(limit: Int = 100): List<ShaneCallDetailEntity>
 
+    @Query(
+        "SELECT * FROM shane_call_details " +
+            "WHERE sourceCallId IS NULL OR sourceCallId = '' " +
+            "ORDER BY callStartedAtEpochMs DESC LIMIT :limit"
+    )
+    suspend fun unlinked(limit: Int = 200): List<ShaneCallDetailEntity>
+
     @Query("UPDATE shane_call_details SET synced = 1 WHERE detailId IN (:detailIds)")
     suspend fun markSynced(detailIds: List<String>)
 
