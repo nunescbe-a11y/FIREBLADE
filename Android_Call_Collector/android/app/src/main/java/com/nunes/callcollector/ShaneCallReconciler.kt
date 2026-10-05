@@ -10,8 +10,8 @@ object ShaneCallReconciler {
         if (!ShaneMode.isEnabled(context) || calls.isEmpty()) return
 
         val dao = AppDatabase.get(context).shaneCallDetailDao()
-        val pending = dao.pending(200)
-        pending.filter { it.sourceCallId.isNullOrBlank() }.forEach { detail ->
+        val pending = dao.unlinked(200)
+        pending.forEach { detail ->
             val candidates = calls.filter { call ->
                 val closeInTime =
                     abs(call.startedAtEpochMs - detail.callStartedAtEpochMs) <= 90_000L
