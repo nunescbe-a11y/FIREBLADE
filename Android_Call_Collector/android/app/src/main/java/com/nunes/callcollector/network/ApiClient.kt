@@ -92,6 +92,62 @@ object ApiClient {
         }
     }
 
+    fun uploadShaneDetail(
+        config: ConfigStore,
+        detail: com.nunes.callcollector.data.ShaneCallDetailEntity
+    ): SyncResult {
+        if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
+        if (!config.apiUrl.startsWith("https://")) {
+            return SyncResult(false, emptySet(), "Fireblade API must use HTTPS")
+        }
+        if (config.deviceToken.isBlank()) return SyncResult(false, emptySet(), "Not enrolled")
+
+        val payload = JSONObject().apply {
+            put("device_id", config.deviceId)
+            put("detail_id", detail.detailId)
+            put("source_call_id", detail.sourceCallId ?: JSONObject.NULL)
+            put("phone_number_raw", detail.phoneNumberRaw)
+            put("phone_number_normalized", detail.phoneNumberNormalized)
+            put("call_started_at_epoch_ms", detail.callStartedAtEpochMs)
+            put("customer_name", detail.customerName)
+            put("product_asked", detail.productAsked)
+            put("location", detail.location)
+            put("notes", detail.notes)
+            put("very_urgent", detail.veryUrgent)
+            put("updated_at_epoch_ms", detail.updatedAtEpochMs)
+        }
+
+        val conn = (
+            URL(config.apiUrl + "/api/v3/shane/call-details").openConnection()
+                as HttpURLConnection
+            ).apply {
+            requestMethod = "POST"
+            connectTimeout = 10000
+            readTimeout = 15000
+            instanceFollowRedirects = false
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-Fireblade-Token", config.deviceToken)
+        }
+
+        return try {
+            conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+            val code = conn.responseCode
+            val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+            if (code in 200..299) {
+                SyncResult(true, setOf(detail.detailId), "Uploaded Shane details")
+            } else {
+                SyncResult(false, emptySet(), "HTTP " + code + ": " + text.take(300))
+            }
+        } catch (e: Exception) {
+            SyncResult(false, emptySet(), e.message ?: e.javaClass.simpleName)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun uploadRecording(config: ConfigStore, recording: com.nunes.callcollector.data.RecordingEntity): SyncResult {
         if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
         if (!config.apiUrl.startsWith("https://")) return SyncResult(false, emptySet(), "Fireblade API must use HTTPS")
