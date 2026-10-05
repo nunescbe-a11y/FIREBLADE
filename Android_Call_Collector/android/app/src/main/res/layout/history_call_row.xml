@@ -47,6 +47,31 @@
             android:layout_marginTop="4dp"
             android:textColor="#7E7A73"
             android:textSize="10sp" />
+
+        <TextView
+            android:id="@+id/tvHistoryDetail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#174EA6"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvHistoryUrgent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:background="@drawable/bg_premium_danger_soft"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:text="VERY URGENT"
+            android:textColor="#B43A3A"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView
