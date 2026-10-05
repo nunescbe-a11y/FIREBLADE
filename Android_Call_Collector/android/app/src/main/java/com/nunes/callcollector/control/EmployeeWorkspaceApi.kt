@@ -66,6 +66,13 @@ object EmployeeWorkspaceApi {
     private fun text(json: JSONObject, key: String): String =
         if (!json.has(key) || json.isNull(key)) "" else json.optString(key, "")
 
+    fun refreshIdentity(config: ConfigStore) {
+        val response = DeviceApi.request(config, DeviceApi.devicePath(config) + "/identity")
+        val employee = response.optJSONObject("employee")
+        config.employee = employee?.optString("employee_name", "").orEmpty()
+        config.department = employee?.optString("department_name", "").orEmpty()
+    }
+
     fun load(config: ConfigStore, selectedDayStart: Long): EmployeeWorkspace {
         val normalizedDay = FirebladeDatePolicy.startOfDay(selectedDayStart)
         val date = FirebladeDatePolicy.dateKey(normalizedDay)
@@ -82,6 +89,12 @@ object EmployeeWorkspaceApi {
             config.markDeviceActive()
             workspace
         } catch (e: DeviceHttpError) {
+            if (e.status == 404) {
+                try {
+                    refreshIdentity(config)
+                } catch (_: Exception) {
+                }
+            }
             if (e.status in listOf(401, 403, 409)) {
                 config.markDeviceBlocked(e.message ?: "Device assignment needs Admin attention")
             }
