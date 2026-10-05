@@ -1,11 +1,15 @@
 package com.nunes.callcollector
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.telephony.TelephonyManager
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class PhoneStateReceiver : BroadcastReceiver() {
@@ -19,10 +23,30 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         val callHadActivity =
             previous == TelephonyManager.EXTRA_STATE_RINGING ||
-            previous == TelephonyManager.EXTRA_STATE_OFFHOOK
+                previous == TelephonyManager.EXTRA_STATE_OFFHOOK
 
         val phoneNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-        val direction = if (previous == TelephonyManager.EXTRA_STATE_RINGING) "INCOMING" else "OUTGOING"
+        val direction =
+            if (previous == TelephonyManager.EXTRA_STATE_RINGING) "INCOMING" else "OUTGOING"
+
+        if (ShaneMode.isEnabled(context)) {
+            when (state) {
+                TelephonyManager.EXTRA_STATE_RINGING -> {
+                    LiveCallStore.onRinging(context, phoneNumber)
+                }
+                TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                    LiveCallStore.onOffhook(context, previous, phoneNumber)
+                }
+                TelephonyManager.EXTRA_STATE_IDLE -> {
+                    if (callHadActivity || LiveCallStore.snapshot(context)?.isActive == true) {
+                        LiveCallStore.onIdle(context)
+                    }
+                }
+            }
+            try {
+                com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(context)
+            } catch (_: Exception) { }
+        }
 
         if (state == TelephonyManager.EXTRA_STATE_OFFHOOK) {
             val startIntent = Intent(context, CallRecordingService::class.java).apply {
@@ -59,8 +83,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
                             phoneNumber = phoneNumber,
                             direction = direction
                         )
-                        com.nunes.callcollector.data.AppDatabase.get(context).recordingDao().insert(entity)
-                        com.nunes.callcollector.AutomationScheduler.enqueueSync(context)
+                        com.nunes.callcollector.data.AppDatabase.get(context)
+                            .recordingDao().insert(entity)
+                        AutomationScheduler.enqueueSync(context)
                     } finally {
                         pendingResult.finish()
                     }
@@ -77,9 +102,49 @@ class PhoneStateReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            AutomationScheduler.enqueueCapture(context, delaySeconds = 3L)
-            AutomationScheduler.enqueueCapture(context, delaySeconds = 20L)
+
+            if (ShaneMode.isEnabled(context)) {
+                captureShaneCallImmediately(context)
+                AutomationScheduler.enqueueCapture(context, delaySeconds = 2L)
+                AutomationScheduler.enqueueCapture(context, delaySeconds = 10L)
+            } else {
+                AutomationScheduler.enqueueCapture(context, delaySeconds = 3L)
+                AutomationScheduler.enqueueCapture(context, delaySeconds = 20L)
+            }
             AutomationScheduler.enqueueHealth(context, eventType = "CALL_FINISHED", delaySeconds = 6L)
+        }
+    }
+
+    private fun captureShaneCallImmediately(context: Context) {
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) !=
+                PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val pendingResult = goAsync()
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                delay(150L)
+                val db = com.nunes.callcollector.data.AppDatabase.get(context)
+                val rows = CallLogScanner(context).scan(50)
+                db.callDao().insertAll(rows)
+                ShaneCallReconciler.reconcile(context, rows)
+                LiveCallStore.clearIfMatched(context, rows)
+
+                if (
+                    db.callDao().pendingCount() > 0 ||
+                    db.shaneCallDetailDao().pendingCount() > 0
+                ) {
+                    AutomationScheduler.enqueueSync(context)
+                }
+                try {
+                    com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(context)
+                } catch (_: Exception) { }
+            } catch (_: Exception) {
+                AutomationScheduler.enqueueCapture(context, delaySeconds = 2L)
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }
