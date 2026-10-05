@@ -60,15 +60,17 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             // Shane details are local-first. Cloud upload never blocks the form or WhatsApp.
             val shaneDao = AppDatabase.get(applicationContext).shaneCallDetailDao()
             val pendingShane = shaneDao.pending(50)
+            var shaneSyncFailed = false
+            var shaneSyncMessage = ""
             for (detail in pendingShane) {
                 state.set("SYNCING", "Uploading Shane customer details...")
                 val detailResult = ApiClient.uploadShaneDetail(config, detail)
                 if (detailResult.ok) {
                     shaneDao.markSynced(listOf(detail.detailId))
                 } else {
-                    state.set("RETRYING", detailResult.message)
-                    CallbackRefreshWorker.enqueue(applicationContext)
-                    return@withContext Result.retry()
+                    shaneSyncFailed = true
+                    shaneSyncMessage = detailResult.message
+                    break
                 }
             }
 
@@ -90,6 +92,12 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                     CallbackRefreshWorker.enqueue(applicationContext)
                     return@withContext Result.retry()
                 }
+            }
+
+            if (shaneSyncFailed) {
+                state.set("RETRYING", shaneSyncMessage.ifBlank { "Shane detail sync will retry." })
+                CallbackRefreshWorker.enqueue(applicationContext)
+                return@withContext Result.retry()
             }
 
             if (
