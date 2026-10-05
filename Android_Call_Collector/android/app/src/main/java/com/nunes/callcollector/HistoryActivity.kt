@@ -16,11 +16,13 @@ import com.nunes.callcollector.control.EmployeeCall
 import com.nunes.callcollector.control.EmployeeWorkspaceApi
 import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.data.CallEntity
+import com.nunes.callcollector.data.ShaneCallDetailEntity
 import com.nunes.callcollector.databinding.ActivityHistoryBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 class HistoryActivity : AppCompatActivity() {
     private lateinit var b: ActivityHistoryBinding
@@ -62,6 +64,11 @@ class HistoryActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
+        if (ShaneMode.isEnabled(this)) {
+            refreshShaneLocalFirst()
+            return
+        }
+
         val day = selectedDayStart
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
@@ -107,8 +114,158 @@ class HistoryActivity : AppCompatActivity() {
         }
     }
 
+    private fun refreshShaneLocalFirst() {
+        val day = selectedDayStart
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
+            val data = withContext(Dispatchers.IO) {
+                val db = AppDatabase.get(this@HistoryActivity)
+                val calls = db.callDao().latest(10_000)
+                    .filter {
+                        it.startedAtEpochMs >= day &&
+                            it.startedAtEpochMs < FirebladeDatePolicy.nextDayStart(day)
+                    }
+                    .sortedByDescending { it.startedAtEpochMs }
+                val details = db.shaneCallDetailDao().latestAll(10_000)
+                calls to details
+            }
+            if (day == selectedDayStart) renderShane(data.first, data.second)
+        }
+    }
+
+    private fun renderShane(
+        localCalls: List<CallEntity>,
+        details: List<ShaneCallDetailEntity>
+    ) {
+        b.btnDate.text =
+            FirebladeDatePolicy.label(selectedDayStart) + "  •  " +
+                FirebladeDatePolicy.displayDate(selectedDayStart)
+        b.tvSourceStatus.text =
+            "Live local call history • background cloud sync stays out of the UI path"
+
+        val calls = localCalls.toMutableList()
+        val live = LiveCallStore.snapshot(this)
+        if (
+            live != null &&
+            live.startedAtEpochMs >= selectedDayStart &&
+            live.startedAtEpochMs < FirebladeDatePolicy.nextDayStart(selectedDayStart)
+        ) {
+            val normalized = PhoneNumberUtil.normalizeIndia(live.phoneNumber)
+            val alreadyPresent = calls.any {
+                abs(it.startedAtEpochMs - live.startedAtEpochMs) <= 90_000L &&
+                    (
+                        normalized.isBlank() ||
+                            it.numberNormalized == normalized ||
+                            it.numberRaw == live.phoneNumber
+                    )
+            }
+            if (!alreadyPresent) {
+                calls += CallEntity(
+                    sourceCallId = "LIVE:" + live.sessionId,
+                    numberRaw = live.phoneNumber,
+                    numberNormalized = normalized,
+                    contactName = null,
+                    direction = when {
+                        live.direction == "INCOMING" && live.state == "RINGING" -> "INCOMING_RINGING"
+                        live.direction == "INCOMING" && live.hadConversation -> "INCOMING_ANSWERED"
+                        live.direction == "INCOMING" -> "INCOMING_MISSED"
+                        live.direction == "OUTGOING" && live.hadConversation -> "OUTGOING_CONNECTED"
+                        else -> "OUTGOING_ACTIVE"
+                    },
+                    startedAtEpochMs = live.startedAtEpochMs,
+                    durationSeconds = live.durationSeconds
+                )
+            }
+        }
+
+        val sorted = calls.sortedByDescending { it.startedAtEpochMs }
+        b.historyList.removeAllViews()
+        b.emptyState.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
+
+        sorted.forEach { call ->
+            val detail = details.firstOrNull { row ->
+                row.sourceCallId == call.sourceCallId ||
+                    (
+                        row.phoneNumberNormalized.isNotBlank() &&
+                            row.phoneNumberNormalized == call.numberNormalized &&
+                            abs(row.callStartedAtEpochMs - call.startedAtEpochMs) <= 90_000L
+                        )
+            }
+
+            val view = LayoutInflater.from(this).inflate(R.layout.history_call_row, b.historyList, false)
+            val displayName = detail?.customerName?.takeIf { it.isNotBlank() }
+                ?: call.contactName?.takeIf { it.isNotBlank() }
+                ?: call.numberRaw.ifBlank { call.numberNormalized.ifBlank { "Unknown" } }
+
+            view.findViewById<TextView>(R.id.tvHistoryName).text = displayName
+            view.findViewById<TextView>(R.id.tvHistoryNumber).text =
+                call.numberRaw.ifBlank { call.numberNormalized }
+            view.findViewById<TextView>(R.id.tvHistoryTime).text =
+                FirebladeDatePolicy.displayTime(call.startedAtEpochMs)
+
+            val liveRow = call.sourceCallId.startsWith("LIVE:")
+            val label = when (call.direction) {
+                "INCOMING_RINGING" -> "Incoming • ringing"
+                "INCOMING_ANSWERED" -> if (liveRow && live?.state == "CONNECTED") "Incoming • on call" else "Incoming"
+                "INCOMING_MISSED" -> "Missed"
+                "INCOMING_REJECTED" -> "Rejected"
+                "OUTGOING_CONNECTED" -> if (liveRow && live?.state == "CONNECTED") "Outgoing • on call" else "Outgoing"
+                "OUTGOING_UNANSWERED" -> "Outgoing • no answer"
+                "OUTGOING_ACTIVE" -> "Outgoing • in progress"
+                else -> call.direction.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() }
+            }
+            val sim = call.simSlotIndex?.let { "SIM " + (it + 1) }
+            val duration = if (call.durationSeconds > 0) formatDuration(call.durationSeconds) else null
+
+            view.findViewById<TextView>(R.id.tvHistoryMeta).apply {
+                text = listOfNotNull(label, sim, duration).joinToString("  •  ")
+                setTextColor(
+                    when (call.direction) {
+                        "INCOMING_MISSED", "INCOMING_REJECTED" -> Color.parseColor("#B43A3A")
+                        "INCOMING_ANSWERED" -> Color.parseColor("#16794B")
+                        else -> Color.parseColor("#6B665E")
+                    }
+                )
+            }
+
+            view.findViewById<ImageView>(R.id.ivHistoryIcon).setColorFilter(
+                when (call.direction) {
+                    "INCOMING_MISSED", "INCOMING_REJECTED" -> Color.parseColor("#B43A3A")
+                    "INCOMING_ANSWERED" -> Color.parseColor("#16794B")
+                    else -> Color.parseColor("#5B5750")
+                }
+            )
+
+            view.findViewById<TextView>(R.id.tvHistoryDetail).apply {
+                val detailText = listOfNotNull(
+                    detail?.productAsked?.takeIf { it.isNotBlank() },
+                    detail?.location?.takeIf { it.isNotBlank() }
+                ).joinToString("  •  ")
+                text = detailText
+                visibility = if (detailText.isBlank()) View.GONE else View.VISIBLE
+            }
+
+            view.findViewById<TextView>(R.id.tvHistoryUrgent).visibility =
+                if (detail?.veryUrgent == true) View.VISIBLE else View.GONE
+
+            view.setOnClickListener {
+                val source = call.sourceCallId.takeUnless { it.startsWith("LIVE:") }
+                startActivity(
+                    Intent(this, ShaneCallDetailActivity::class.java)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_SOURCE_CALL_ID, source)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_PHONE_RAW, call.numberRaw)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_PHONE_NORMALIZED, call.numberNormalized)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_STARTED_AT, call.startedAtEpochMs)
+                )
+            }
+            b.historyList.addView(view)
+        }
+    }
+
     private fun render(calls: List<EmployeeCall>, source: Source, message: String) {
-        b.btnDate.text = "${FirebladeDatePolicy.label(selectedDayStart)}  \u2022  ${FirebladeDatePolicy.displayDate(selectedDayStart)}"
+        b.btnDate.text =
+            FirebladeDatePolicy.label(selectedDayStart) + "  •  " +
+                FirebladeDatePolicy.displayDate(selectedDayStart)
         b.tvSourceStatus.text = when (source) {
             Source.SERVER -> if (message.isBlank()) "Employee-wide Fireblade call history" else message
             Source.CACHE -> "Last verified employee-wide call history"
@@ -137,12 +294,12 @@ class HistoryActivity : AppCompatActivity() {
                 "OUTGOING_UNANSWERED" -> "Outgoing - no answer"
                 else -> call.direction.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() }
             }
-            val sim = call.simSlotIndex?.let { "SIM ${it + 1}" }
+            val sim = call.simSlotIndex?.let { "SIM " + (it + 1) }
             val device = call.deviceId.takeIf { it.isNotBlank() }
             val duration = if (call.durationSeconds > 0) formatDuration(call.durationSeconds) else null
 
             view.findViewById<TextView>(R.id.tvHistoryMeta).apply {
-                text = listOfNotNull(label, sim, device, duration).joinToString("  \u2022  ")
+                text = listOfNotNull(label, sim, device, duration).joinToString("  •  ")
                 setTextColor(
                     when (call.direction) {
                         "INCOMING_MISSED" -> Color.parseColor("#B43A3A")
@@ -160,6 +317,9 @@ class HistoryActivity : AppCompatActivity() {
                 }
             )
 
+            view.findViewById<TextView>(R.id.tvHistoryDetail).visibility = View.GONE
+            view.findViewById<TextView>(R.id.tvHistoryUrgent).visibility = View.GONE
+
             view.setOnClickListener {
                 val number = call.numberRaw.ifBlank { call.numberNormalized }
                 if (number.isNotBlank()) {
@@ -173,7 +333,7 @@ class HistoryActivity : AppCompatActivity() {
     private fun formatDuration(seconds: Long): String {
         val m = seconds / 60
         val s = seconds % 60
-        return if (m > 0) "${m}m ${s}s" else "${s}s"
+        return if (m > 0) m.toString() + "m " + s + "s" else s.toString() + "s"
     }
 
     private fun openDatePicker() {
