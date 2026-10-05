@@ -57,6 +57,21 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 batches++
             }
 
+            // Shane details are local-first. Cloud upload never blocks the form or WhatsApp.
+            val shaneDao = AppDatabase.get(applicationContext).shaneCallDetailDao()
+            val pendingShane = shaneDao.pending(50)
+            for (detail in pendingShane) {
+                state.set("SYNCING", "Uploading Shane customer details...")
+                val detailResult = ApiClient.uploadShaneDetail(config, detail)
+                if (detailResult.ok) {
+                    shaneDao.markSynced(listOf(detail.detailId))
+                } else {
+                    state.set("RETRYING", detailResult.message)
+                    CallbackRefreshWorker.enqueue(applicationContext)
+                    return@withContext Result.retry()
+                }
+            }
+
             // Upload recordings (runs whether calls were pending or not)
             val recordingDao = AppDatabase.get(applicationContext).recordingDao()
             val pendingRecordings = recordingDao.pending(20)
@@ -77,7 +92,11 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 }
             }
 
-            if (dao.pendingCount() > 0 || pendingRecordings.size > recordingsUploaded) {
+            if (
+                dao.pendingCount() > 0 ||
+                shaneDao.pendingCount() > 0 ||
+                pendingRecordings.size > recordingsUploaded
+            ) {
                 state.set("QUEUED", "More records remain; another automatic sync will continue.")
                 com.nunes.callcollector.AutomationScheduler.enqueueSync(applicationContext)
             } else {
@@ -85,6 +104,9 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 com.nunes.callcollector.AutomationScheduler.enqueueHealth(applicationContext, "CALL_SYNC")
             }
             CallbackRefreshWorker.enqueue(applicationContext)
+            try {
+                com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(applicationContext)
+            } catch (_: Exception) { }
             Result.success()
         } catch (e: Exception) {
             state.set("RETRYING", e.message ?: e.javaClass.simpleName)
