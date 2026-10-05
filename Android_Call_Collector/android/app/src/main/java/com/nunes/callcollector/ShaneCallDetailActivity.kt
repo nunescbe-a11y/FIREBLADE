@@ -90,10 +90,10 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     private suspend fun resolveTarget(): CallTarget? {
         if (intent.getBooleanExtra(EXTRA_OPEN_LATEST_SPOKEN, false)) {
             val latest = db.callDao().latestSpoken()
-            if (latest != null) return latest.toTarget()
-
             val live = LiveCallStore.snapshot(this)
-            if (live != null && live.state == "COMPLETED" && live.hadConversation) {
+                ?.takeIf { it.state == "COMPLETED" && it.hadConversation }
+
+            if (live != null && (latest == null || live.startedAtEpochMs > latest.startedAtEpochMs)) {
                 val normalized = PhoneNumberUtil.normalizeIndia(live.phoneNumber)
                 return CallTarget(
                     sourceCallId = null,
@@ -102,6 +102,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                     startedAtEpochMs = live.startedAtEpochMs
                 )
             }
+
+            if (latest != null) return latest.toTarget()
             return null
         }
 
