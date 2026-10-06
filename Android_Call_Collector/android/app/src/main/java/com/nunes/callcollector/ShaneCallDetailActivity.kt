@@ -76,12 +76,12 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val resolved = withContext(Dispatchers.IO) { resolveTarget() }
             if (resolved == null) {
+                b.tvPhone.text = if (immediateNumber.isNotBlank()) immediateNumber else "No call selected"
                 Toast.makeText(
                     this@ShaneCallDetailActivity,
                     "No completed spoken call is available yet.",
                     Toast.LENGTH_SHORT
                 ).show()
-                finish()
                 return@launch
             }
             target = resolved
@@ -274,20 +274,39 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             }
 
             if (latest != null) return latest.toTarget()
-            return null
         }
 
         val raw = intent.getStringExtra(EXTRA_PHONE_RAW).orEmpty()
         val normalized = intent.getStringExtra(EXTRA_PHONE_NORMALIZED).orEmpty()
             .ifBlank { PhoneNumberUtil.normalizeIndia(raw) }
         val started = intent.getLongExtra(EXTRA_STARTED_AT, 0L)
-        if (started <= 0L) return null
-        return CallTarget(
-            sourceCallId = intent.getStringExtra(EXTRA_SOURCE_CALL_ID)?.takeIf { it.isNotBlank() },
-            phoneRaw = raw,
-            phoneNormalized = normalized,
-            startedAtEpochMs = started
-        )
+        val sourceId = intent.getStringExtra(EXTRA_SOURCE_CALL_ID)?.takeIf { it.isNotBlank() }
+
+        if (raw.isNotBlank() || normalized.isNotBlank() || sourceId != null) {
+            val validStarted = if (started > 0L) started else System.currentTimeMillis()
+            return CallTarget(
+                sourceCallId = sourceId,
+                phoneRaw = raw,
+                phoneNormalized = normalized,
+                startedAtEpochMs = validStarted
+            )
+        }
+
+        val latest = db.callDao().latestSpoken()
+        if (latest != null) return latest.toTarget()
+
+        val live = LiveCallStore.snapshot(this)
+        if (live != null && live.phoneNumber.isNotBlank()) {
+            val norm = PhoneNumberUtil.normalizeIndia(live.phoneNumber)
+            return CallTarget(
+                sourceCallId = null,
+                phoneRaw = live.phoneNumber,
+                phoneNormalized = norm,
+                startedAtEpochMs = live.startedAtEpochMs
+            )
+        }
+
+        return null
     }
 
     private fun saveAndSend() {
