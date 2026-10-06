@@ -19,6 +19,10 @@ import com.nunes.callcollector.databinding.ActivityShaneCallDetailBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class ShaneCallDetailActivity : AppCompatActivity() {
     private lateinit var b: ActivityShaneCallDetailBinding
@@ -289,13 +293,15 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(this@ShaneCallDetailActivity)
             } catch (_: Exception) { }
 
+            val messageCreatedAtEpochMs = System.currentTimeMillis()
             val message = buildMessage(
                 customerName = customerName,
                 phone = call.phoneRaw.ifBlank { call.phoneNormalized },
                 productAsked = productAsked,
                 location = location,
                 notes = notes,
-                urgent = urgent
+                urgent = urgent,
+                messageCreatedAtEpochMs = messageCreatedAtEpochMs
             )
 
             b.btnSaveSend.isEnabled = true
@@ -313,13 +319,25 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         productAsked: String,
         location: String,
         notes: String,
-        urgent: Boolean
+        urgent: Boolean,
+        messageCreatedAtEpochMs: Long
     ): String {
+        val systemZone = ZoneId.systemDefault()
+        val systemDateTime = Instant.ofEpochMilli(messageCreatedAtEpochMs).atZone(systemZone)
+        val sentDate = systemDateTime.format(
+            DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
+        )
+        val sentTime = systemDateTime.format(
+            DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+        )
+
         val lines = mutableListOf(
             "Customer Name: $customerName",
             "Phone: $phone",
             "Product Asked: $productAsked",
-            "Location: $location"
+            "Location: $location",
+            "Date: $sentDate",
+            "Time: $sentTime"
         )
         if (urgent) lines += "Priority: VERY URGENT"
         lines += ""
