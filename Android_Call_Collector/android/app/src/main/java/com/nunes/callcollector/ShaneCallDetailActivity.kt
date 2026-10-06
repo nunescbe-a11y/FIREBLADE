@@ -400,19 +400,18 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
         )
 
-        val lines = mutableListOf(
-            "Customer Name: $customerName",
-            "Phone: $phone",
-            "Product Asked: $productAsked",
-            "Location: $location",
-            "Date: $sentDate",
-            "Time: $sentTime"
+        val sections = mutableListOf(
+            "*Customer Enquiry*",
+            "*Customer*\n$customerName\n$phone",
+            "*Product*\n$productAsked",
+            "*Location*\n$location",
+            "*Date & Time*\n$sentDate • $sentTime"
         )
-        if (urgent) lines += "Priority: VERY URGENT"
-        lines += ""
-        lines += "Notes:"
-        lines += notes
-        return lines.joinToString("\n")
+        if (urgent) {
+            sections += "*Priority*\nVERY URGENT"
+        }
+        sections += "*Notes*\n$notes"
+        return sections.joinToString("\n\n")
     }
 
     private fun startRecipientQueue(
