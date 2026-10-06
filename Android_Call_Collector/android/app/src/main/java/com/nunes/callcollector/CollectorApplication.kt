@@ -18,6 +18,7 @@ class CollectorApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        com.nunes.callcollector.widgets.WidgetModeCoordinator.sync(this)
         com.nunes.callcollector.control.UpdateWorker.schedule(this)
         com.nunes.callcollector.callbacks.FollowUpNotifier.ensureChannel(this)
         com.nunes.callcollector.callbacks.CallbackRefreshWorker.schedule(this)
