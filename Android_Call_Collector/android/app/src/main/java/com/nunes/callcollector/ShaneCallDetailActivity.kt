@@ -401,16 +401,16 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         )
 
         val sections = mutableListOf(
-            "*Customer Enquiry*",
-            "*Customer*\n$customerName\n$phone",
-            "*Product*\n$productAsked",
-            "*Location*\n$location",
-            "*Date & Time*\n$sentDate • $sentTime"
+            "Customer Name: $customerName",
+            "Customer Number: $phone",
+            "Product Asked: $productAsked",
+            "Location: $location",
+            "Date & Time: $sentDate • $sentTime"
         )
         if (urgent) {
-            sections += "*Priority*\nVERY URGENT"
+            sections += "Priority: VERY URGENT"
         }
-        sections += "*Notes*\n$notes"
+        sections += "Notes: $notes"
         return sections.joinToString("\n\n")
     }
 
