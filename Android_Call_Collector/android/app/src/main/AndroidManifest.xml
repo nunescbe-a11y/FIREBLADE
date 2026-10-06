@@ -77,7 +77,7 @@
 
         <receiver
             android:name=".widgets.ShaneAddDetailsWidgetProvider"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:label="@string/widget_shane_add_details_name">
             <intent-filter>
@@ -90,7 +90,7 @@
 
         <receiver
             android:name=".widgets.ShaneOpenHistoryWidgetProvider"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:label="@string/widget_shane_open_history_name">
             <intent-filter>
@@ -103,7 +103,7 @@
 
         <receiver
             android:name=".widgets.ShaneMissedCallsWidgetProvider"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:label="@string/widget_shane_missed_calls_name">
             <intent-filter>
