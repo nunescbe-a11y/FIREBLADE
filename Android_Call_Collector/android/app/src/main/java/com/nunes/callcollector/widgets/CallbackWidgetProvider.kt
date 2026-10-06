@@ -37,6 +37,10 @@ class CallbackCompactWidgetProvider : AppWidgetProvider() {
 
 object CallbackWidgetUpdater {
     fun updateAll(context: Context) {
+        if (ShaneMode.isEnabled(context)) {
+            ShaneWidgetUpdater.updateAll(context)
+        }
+
         val manager = AppWidgetManager.getInstance(context)
         val large = manager.getAppWidgetIds(ComponentName(context, CallbackWidgetProvider::class.java))
         large.forEach { manager.updateAppWidget(it, largeViews(context)) }
