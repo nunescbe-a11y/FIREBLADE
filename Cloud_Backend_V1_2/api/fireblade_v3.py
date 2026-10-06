@@ -158,6 +158,120 @@ def install_routes(app, db, health_model):
             }
         }
 
+    @app.get("/api/v3/devices/{device_id}/shane/marketing-recipients")
+    def shane_marketing_recipients(
+        device_id: str,
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        device_id = device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+
+        _, assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id&device_id=eq." + quote(device_id, safe="") +
+            "&assigned_until=is.null&limit=2"
+        )
+        if not assignments or len(assignments) != 1:
+            raise HTTPException(409, "Shane recipient list requires one active employee assignment")
+
+        employee_id = str(assignments[0].get("employee_id") or "")
+        _, employees = db(
+            "GET",
+            "fireblade_employees?select=employee_id,department_id"
+            "&employee_id=eq." + quote(employee_id, safe="") +
+            "&active=eq.true&limit=1"
+        )
+        if not employees or not employees[0].get("department_id"):
+            raise HTTPException(403, "Employee department is not configured")
+
+        _, current_departments = db(
+            "GET",
+            "fireblade_departments?select=name&id=eq." +
+            quote(str(employees[0]["department_id"]), safe="") +
+            "&active=eq.true&limit=1"
+        )
+        current_department_name = (
+            str(current_departments[0].get("name", "")).strip().upper()
+            if current_departments else ""
+        )
+        if current_department_name != "SHANE":
+            raise HTTPException(403, "Marketing recipients are restricted to the SHANE department")
+
+        _, active_departments = db(
+            "GET",
+            "fireblade_departments?select=id,name&active=eq.true"
+        )
+        marketing_department_ids = {
+            str(row.get("id"))
+            for row in (active_departments or [])
+            if str(row.get("name", "")).strip().upper() == "MARKETING" and row.get("id")
+        }
+        if not marketing_department_ids:
+            return {"department": "MARKETING", "employees": []}
+
+        _, marketing_employees = db(
+            "GET",
+            "fireblade_employees?select=employee_id,employee_name,department_id"
+            "&active=eq.true&order=employee_name.asc"
+        )
+        marketing_employees = [
+            row for row in (marketing_employees or [])
+            if str(row.get("department_id")) in marketing_department_ids
+        ]
+
+        _, active_assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id,device_id,company_phone_number,assigned_from"
+            "&assigned_until=is.null&order=assigned_from.desc"
+        )
+        _, active_devices = db(
+            "GET",
+            "fireblade_devices?select=device_id,company_phone_number&active=eq.true"
+        )
+        device_phones = {
+            str(row.get("device_id") or "").strip().upper():
+                str(row.get("company_phone_number") or "").strip()
+            for row in (active_devices or [])
+            if str(row.get("device_id") or "").strip()
+        }
+
+        assignments_by_employee = {}
+        for row in (active_assignments or []):
+            assigned_employee_id = str(row.get("employee_id") or "").strip()
+            if assigned_employee_id:
+                assignments_by_employee.setdefault(assigned_employee_id, []).append(row)
+
+        recipients = []
+        for employee in marketing_employees:
+            marketing_employee_id = str(employee.get("employee_id") or "").strip()
+            phone_number = ""
+            employee_assignments = assignments_by_employee.get(marketing_employee_id, [])
+
+            for row in employee_assignments:
+                candidate = str(row.get("company_phone_number") or "").strip()
+                if candidate:
+                    phone_number = candidate
+                    break
+
+            if not phone_number:
+                for row in employee_assignments:
+                    assigned_device_id = str(row.get("device_id") or "").strip().upper()
+                    candidate = device_phones.get(assigned_device_id, "")
+                    if candidate:
+                        phone_number = candidate
+                        break
+
+            recipients.append({
+                "employee_id": marketing_employee_id,
+                "employee_name": str(employee.get("employee_name") or "").strip(),
+                "phone_number": phone_number,
+                "available": bool(phone_number)
+            })
+
+        return {"department": "MARKETING", "employees": recipients}
+
     @app.get("/api/v3/devices/{device_id}/commands")
     def commands(device_id: str, x_fireblade_token: Optional[str] = Header(default=None)):
         authorize(db, device_id, x_fireblade_token)
