@@ -3,7 +3,7 @@
     android:id="@+id/widgetShaneAddRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#17181B"
+    android:background="@drawable/bg_widget"
     android:gravity="center"
     android:orientation="vertical"
     android:padding="14dp">
@@ -11,8 +11,25 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:text="FIREBLADE"
+        android:textColor="#8FA6CC"
+        android:textSize="9sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
         android:text="Add Details"
         android:textColor="#FFFFFF"
-        android:textSize="18sp"
+        android:textSize="17sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="Latest spoken call"
+        android:textColor="#C9CAD0"
+        android:textSize="10sp" />
 </LinearLayout>
