@@ -340,6 +340,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         notes = notes,
                         veryUrgent = urgent,
                         synced = false,
+                        syncState = "PENDING",
+                        syncError = null,
                         createdAtEpochMs = now,
                         updatedAtEpochMs = now
                     )
@@ -355,6 +357,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         notes = notes,
                         veryUrgent = urgent,
                         synced = false,
+                        syncState = "PENDING",
+                        syncError = null,
                         updatedAtEpochMs = now
                     )
                 }

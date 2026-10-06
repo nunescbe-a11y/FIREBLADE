@@ -67,6 +67,9 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 val detailResult = ApiClient.uploadShaneDetail(config, detail)
                 if (detailResult.ok) {
                     shaneDao.markSynced(listOf(detail.detailId))
+                } else if (detailResult.isPermanentRejection) {
+                    shaneDao.markRejected(detail.detailId, detailResult.message)
+                    // Head-of-line blocking prevented: continue to next pending detail
                 } else {
                     shaneSyncFailed = true
                     shaneSyncMessage = detailResult.message

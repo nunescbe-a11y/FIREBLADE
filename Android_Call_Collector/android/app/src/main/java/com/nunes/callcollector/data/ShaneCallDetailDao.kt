@@ -44,7 +44,7 @@ interface ShaneCallDetailDao {
     @Query("SELECT * FROM shane_call_details ORDER BY callStartedAtEpochMs DESC LIMIT :limit")
     suspend fun latestAll(limit: Int = 10000): List<ShaneCallDetailEntity>
 
-    @Query("SELECT * FROM shane_call_details WHERE synced = 0 ORDER BY updatedAtEpochMs ASC LIMIT :limit")
+    @Query("SELECT * FROM shane_call_details WHERE synced = 0 AND syncState = 'PENDING' ORDER BY updatedAtEpochMs ASC LIMIT :limit")
     suspend fun pending(limit: Int = 100): List<ShaneCallDetailEntity>
 
     @Query(
@@ -54,16 +54,26 @@ interface ShaneCallDetailDao {
     )
     suspend fun unlinked(limit: Int = 200): List<ShaneCallDetailEntity>
 
-    @Query("UPDATE shane_call_details SET synced = 1 WHERE detailId IN (:detailIds)")
+    @Query("UPDATE shane_call_details SET synced = 1, syncState = 'SYNCED', syncError = NULL WHERE detailId IN (:detailIds)")
     suspend fun markSynced(detailIds: List<String>)
 
     @Query(
         "UPDATE shane_call_details " +
-            "SET sourceCallId = :sourceCallId, synced = 0, updatedAtEpochMs = :updatedAtEpochMs " +
+            "SET synced = 0, syncState = 'REJECTED', syncError = :error " +
+            "WHERE detailId = :detailId"
+    )
+    suspend fun markRejected(detailId: String, error: String)
+
+    @Query(
+        "UPDATE shane_call_details " +
+            "SET sourceCallId = :sourceCallId, synced = 0, syncState = 'PENDING', syncError = NULL, updatedAtEpochMs = :updatedAtEpochMs " +
             "WHERE detailId = :detailId"
     )
     suspend fun attachSourceCall(detailId: String, sourceCallId: String, updatedAtEpochMs: Long)
 
-    @Query("SELECT COUNT(*) FROM shane_call_details WHERE synced = 0")
+    @Query("SELECT COUNT(*) FROM shane_call_details WHERE synced = 0 AND syncState = 'PENDING'")
     suspend fun pendingCount(): Int
+
+    @Query("SELECT COUNT(*) FROM shane_call_details WHERE syncState = 'REJECTED'")
+    suspend fun rejectedCount(): Int
 }

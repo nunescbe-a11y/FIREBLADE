@@ -92,15 +92,22 @@ object ApiClient {
         }
     }
 
+    data class ShaneSyncResult(
+        val ok: Boolean,
+        val statusCode: Int,
+        val isPermanentRejection: Boolean,
+        val message: String
+    )
+
     fun uploadShaneDetail(
         config: ConfigStore,
         detail: com.nunes.callcollector.data.ShaneCallDetailEntity
-    ): SyncResult {
-        if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
+    ): ShaneSyncResult {
+        if (config.apiUrl.isBlank()) return ShaneSyncResult(false, 0, false, "API URL is empty")
         if (!config.apiUrl.startsWith("https://")) {
-            return SyncResult(false, emptySet(), "Fireblade API must use HTTPS")
+            return ShaneSyncResult(false, 0, false, "Fireblade API must use HTTPS")
         }
-        if (config.deviceToken.isBlank()) return SyncResult(false, emptySet(), "Not enrolled")
+        if (config.deviceToken.isBlank()) return ShaneSyncResult(false, 0, false, "Not enrolled")
 
         val payload = JSONObject().apply {
             put("device_id", config.deviceId)
@@ -137,12 +144,13 @@ object ApiClient {
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
 
             if (code in 200..299) {
-                SyncResult(true, setOf(detail.detailId), "Uploaded Shane details")
+                ShaneSyncResult(true, code, false, "Uploaded Shane details")
             } else {
-                SyncResult(false, emptySet(), "HTTP " + code + ": " + text.take(300))
+                val isPermanent = (code == 403 && text.contains("Shane call details are restricted to the SHANE department", ignoreCase = true))
+                ShaneSyncResult(false, code, isPermanent, "HTTP $code: ${text.take(300)}")
             }
         } catch (e: Exception) {
-            SyncResult(false, emptySet(), e.message ?: e.javaClass.simpleName)
+            ShaneSyncResult(false, 0, false, e.message ?: e.javaClass.simpleName)
         } finally {
             conn.disconnect()
         }

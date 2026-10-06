@@ -27,6 +27,9 @@ data class ShaneCallDetailEntity(
     val notes: String = "",
     val veryUrgent: Boolean = false,
     val synced: Boolean = false,
+    val syncState: String = "PENDING",
+    val syncError: String? = null,
     val createdAtEpochMs: Long = System.currentTimeMillis(),
     val updatedAtEpochMs: Long = System.currentTimeMillis()
 )
+
