@@ -130,6 +130,41 @@
             android:textSize="15sp"
             android:textStyle="bold" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Send to Marketing"
+            android:textColor="#171717"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvMarketingStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Loading marketing employees..."
+            android:textColor="#6B665E"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:id="@+id/marketingEmployeeList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/tvMarketingSelectedCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="0 employees selected"
+            android:textColor="#171717"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSaveSend"
             android:layout_width="match_parent"
