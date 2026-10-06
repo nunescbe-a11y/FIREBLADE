@@ -36,7 +36,10 @@ class ConfigStore(context: Context) {
 
     var department: String
         get() = p.getString("department", "") ?: ""
-        set(v) = p.edit().putString("department", v.trim().uppercase()).apply()
+        set(v) {
+            p.edit().putString("department", v.trim().uppercase()).apply()
+            com.nunes.callcollector.widgets.WidgetModeCoordinator.sync(contextRef)
+        }
 
     var apiUrl: String
         get() = p.getString("api_url", "") ?: ""
@@ -85,5 +88,6 @@ class ConfigStore(context: Context) {
             .putString("device_access_state", "UNKNOWN")
             .putString("device_access_message", "")
             .apply()
+        com.nunes.callcollector.widgets.WidgetModeCoordinator.sync(contextRef)
     }
 }
