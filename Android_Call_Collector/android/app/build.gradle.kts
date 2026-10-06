@@ -18,8 +18,8 @@ android {
         applicationId = "com.nunes.callcollector"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.7.13"
+        versionCode = 29
+        versionName = "1.7.14"
     }
 
     buildFeatures { viewBinding = true }

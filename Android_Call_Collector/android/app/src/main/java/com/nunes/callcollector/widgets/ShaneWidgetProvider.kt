@@ -88,14 +88,20 @@ object ShaneWidgetUpdater {
     private fun openShaneLatest(context: Context, requestCode: Int) = PendingIntent.getActivity(
         context,
         requestCode,
-        Intent(context, MainActivity::class.java).putExtra("open_shane_latest", true),
+        Intent(context, MainActivity::class.java)
+            .setAction("com.nunes.callcollector.ACTION_WIDGET_SHANE_LATEST")
+            .putExtra("open_shane_latest", true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
     private fun openHistory(context: Context, requestCode: Int) = PendingIntent.getActivity(
         context,
         requestCode,
-        Intent(context, MainActivity::class.java).putExtra("open_history", true),
+        Intent(context, MainActivity::class.java)
+            .setAction("com.nunes.callcollector.ACTION_WIDGET_OPEN_HISTORY_$requestCode")
+            .putExtra("open_history", true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 }

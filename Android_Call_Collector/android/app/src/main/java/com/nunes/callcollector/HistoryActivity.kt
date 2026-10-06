@@ -44,6 +44,12 @@ class HistoryActivity : AppCompatActivity() {
     }
 
     private enum class Source { SERVER, CACHE, LOCAL, BLOCKED }
+    private enum class SimFilter(val label: String) {
+        ALL("All SIMs"),
+        SIM_1("SIM 1"),
+        SIM_2("SIM 2")
+    }
+    private var selectedSimFilter: SimFilter = SimFilter.ALL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,6 +68,37 @@ class HistoryActivity : AppCompatActivity() {
         PremiumNav.bind(this, b.root, PremiumTab.HISTORY)
         b.btnBack.setOnClickListener { finish() }
         b.btnDate.setOnClickListener { openDatePicker() }
+
+        setupSimFilterSpinner()
+    }
+
+    private fun setupSimFilterSpinner() {
+        val options = SimFilter.values().map { it.label }
+        val adapter = android.widget.ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            options
+        ).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        b.spinnerSimFilter.adapter = adapter
+        b.spinnerSimFilter.setSelection(selectedSimFilter.ordinal)
+        b.spinnerSimFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                val newFilter = SimFilter.values().getOrElse(position) { SimFilter.ALL }
+                if (newFilter != selectedSimFilter) {
+                    selectedSimFilter = newFilter
+                    refresh()
+                }
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
     }
 
     override fun onStart() {
@@ -176,38 +213,48 @@ class HistoryActivity : AppCompatActivity() {
         b.tvSourceStatus.text =
             "Live local call history • background cloud sync stays out of the UI path"
 
-        val calls = localCalls.toMutableList()
+        val filteredLocalCalls = when (selectedSimFilter) {
+            SimFilter.ALL -> localCalls
+            SimFilter.SIM_1 -> localCalls.filter { it.simSlotIndex == 0 }
+            SimFilter.SIM_2 -> localCalls.filter { it.simSlotIndex == 1 }
+        }
+
+        val calls = filteredLocalCalls.toMutableList()
         val live = LiveCallStore.snapshot(this)
         if (
             live != null &&
             live.startedAtEpochMs >= selectedDayStart &&
             live.startedAtEpochMs < FirebladeDatePolicy.nextDayStart(selectedDayStart)
         ) {
-            val normalized = PhoneNumberUtil.normalizeIndia(live.phoneNumber)
-            val alreadyPresent = calls.any {
-                abs(it.startedAtEpochMs - live.startedAtEpochMs) <= 90_000L &&
-                    (
-                        normalized.isBlank() ||
-                            it.numberNormalized == normalized ||
-                            it.numberRaw == live.phoneNumber
+            val matchesSimFilter = selectedSimFilter == SimFilter.ALL
+            if (matchesSimFilter) {
+                val normalized = PhoneNumberUtil.normalizeIndia(live.phoneNumber)
+                val alreadyPresent = calls.any {
+                    abs(it.startedAtEpochMs - live.startedAtEpochMs) <= 90_000L &&
+                        (
+                            normalized.isBlank() ||
+                                it.numberNormalized == normalized ||
+                                it.numberRaw == live.phoneNumber
+                        )
+                }
+                if (!alreadyPresent) {
+                    calls += CallEntity(
+                        sourceCallId = "LIVE:" + live.sessionId,
+                        numberRaw = live.phoneNumber,
+                        numberNormalized = normalized,
+                        contactName = null,
+                        direction = when {
+                            live.direction == "INCOMING" && live.state == "RINGING" -> "INCOMING_RINGING"
+                            live.direction == "INCOMING" && live.hadConversation -> "INCOMING_ANSWERED"
+                            live.direction == "INCOMING" -> "INCOMING_MISSED"
+                            live.direction == "OUTGOING" && live.hadConversation -> "OUTGOING_CONNECTED"
+                            else -> "OUTGOING_ACTIVE"
+                        },
+                        startedAtEpochMs = live.startedAtEpochMs,
+                        durationSeconds = live.durationSeconds,
+                        simSlotIndex = null
                     )
-            }
-            if (!alreadyPresent) {
-                calls += CallEntity(
-                    sourceCallId = "LIVE:" + live.sessionId,
-                    numberRaw = live.phoneNumber,
-                    numberNormalized = normalized,
-                    contactName = null,
-                    direction = when {
-                        live.direction == "INCOMING" && live.state == "RINGING" -> "INCOMING_RINGING"
-                        live.direction == "INCOMING" && live.hadConversation -> "INCOMING_ANSWERED"
-                        live.direction == "INCOMING" -> "INCOMING_MISSED"
-                        live.direction == "OUTGOING" && live.hadConversation -> "OUTGOING_CONNECTED"
-                        else -> "OUTGOING_ACTIVE"
-                    },
-                    startedAtEpochMs = live.startedAtEpochMs,
-                    durationSeconds = live.durationSeconds
-                )
+                }
             }
         }
 
@@ -306,10 +353,16 @@ class HistoryActivity : AppCompatActivity() {
             Source.LOCAL -> "Local phone history - employee-wide server history is temporarily unavailable"
         }
 
-        b.historyList.removeAllViews()
-        b.emptyState.visibility = if (calls.isEmpty()) View.VISIBLE else View.GONE
+        val filteredCalls = when (selectedSimFilter) {
+            SimFilter.ALL -> calls
+            SimFilter.SIM_1 -> calls.filter { it.simSlotIndex == 0 }
+            SimFilter.SIM_2 -> calls.filter { it.simSlotIndex == 1 }
+        }
 
-        calls.forEach { call ->
+        b.historyList.removeAllViews()
+        b.emptyState.visibility = if (filteredCalls.isEmpty()) View.VISIBLE else View.GONE
+
+        filteredCalls.forEach { call ->
             val view = LayoutInflater.from(this).inflate(R.layout.history_call_row, b.historyList, false)
             val name = call.contactName?.takeIf { it.isNotBlank() }
                 ?: call.numberRaw.ifBlank { call.numberNormalized.ifBlank { "Unknown" } }

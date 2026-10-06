@@ -381,7 +381,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(this@ShaneCallDetailActivity)
             } catch (_: Exception) { }
 
-            val messageCreatedAtEpochMs = System.currentTimeMillis()
             val message = buildMessage(
                 customerName = customerName,
                 phone = call.phoneRaw.ifBlank { call.phoneNormalized },
@@ -389,7 +388,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 location = location,
                 notes = notes,
                 urgent = urgent,
-                messageCreatedAtEpochMs = messageCreatedAtEpochMs
+                callStartedAtEpochMs = call.startedAtEpochMs
             )
 
             b.btnSaveSend.isEnabled = true
@@ -408,10 +407,11 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         location: String,
         notes: String,
         urgent: Boolean,
-        messageCreatedAtEpochMs: Long
+        callStartedAtEpochMs: Long
     ): String {
         val systemZone = ZoneId.systemDefault()
-        val systemDateTime = Instant.ofEpochMilli(messageCreatedAtEpochMs).atZone(systemZone)
+        val effectiveCallTimestamp = if (callStartedAtEpochMs > 0L) callStartedAtEpochMs else System.currentTimeMillis()
+        val systemDateTime = Instant.ofEpochMilli(effectiveCallTimestamp).atZone(systemZone)
         val sentDate = systemDateTime.format(
             DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
         )
