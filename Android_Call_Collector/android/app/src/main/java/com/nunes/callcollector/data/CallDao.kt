@@ -30,6 +30,9 @@ interface CallDao {
     @Query("SELECT COUNT(*) FROM calls")
     suspend fun totalCount(): Int
 
+    @Query("SELECT COUNT(*) FROM calls WHERE direction = 'INCOMING_MISSED'")
+    suspend fun missedCount(): Int
+
     @Query("SELECT COUNT(*) FROM calls WHERE synced = 0")
     suspend fun pendingCount(): Int
 
