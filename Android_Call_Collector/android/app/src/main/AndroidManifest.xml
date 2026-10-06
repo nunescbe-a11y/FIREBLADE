@@ -51,8 +51,6 @@
             </intent-filter>
         </activity>
 
-
-
         <receiver
             android:name=".widgets.CallbackWidgetProvider"
             android:exported="true"
@@ -75,6 +73,45 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/callback_compact_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widgets.ShaneAddDetailsWidgetProvider"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/widget_shane_add_details_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/shane_add_details_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widgets.ShaneOpenHistoryWidgetProvider"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/widget_shane_open_history_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/shane_open_history_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widgets.ShaneMissedCallsWidgetProvider"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/widget_shane_missed_calls_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/shane_missed_calls_widget_info" />
         </receiver>
 
         <receiver
@@ -113,11 +150,12 @@
                 <action android:name="android.intent.action.ACTION_SHUTDOWN" />
             </intent-filter>
         </receiver>
-            <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
         <activity android:name=".HistoryActivity" android:exported="false" />
         <activity android:name=".ShaneCallDetailActivity" android:exported="false" />
         <activity android:name=".CallbacksActivity" android:exported="false" />
         <activity android:name=".EmployeeHomeActivity" android:exported="false" />
-        <activity android:name=".DeviceAdminActivity" android:exported="false" /></application>
+        <activity android:name=".DeviceAdminActivity" android:exported="false" />
+    </application>
 </manifest>
