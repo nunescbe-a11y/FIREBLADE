@@ -5,4 +5,7 @@
     <string name="restriction_enrollment">One-time enrollment code</string>
     <string name="widget_callbacks_name">Fireblade Callbacks</string>
     <string name="widget_callbacks_compact_name">Fireblade Callback Count</string>
+    <string name="widget_shane_add_details_name">Fireblade • Add Details</string>
+    <string name="widget_shane_open_history_name">Fireblade • Open History</string>
+    <string name="widget_shane_missed_calls_name">Fireblade • Missed Calls</string>
 </resources>
