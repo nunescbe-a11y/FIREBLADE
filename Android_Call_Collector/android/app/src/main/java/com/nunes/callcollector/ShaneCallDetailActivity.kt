@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.CheckBox
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -61,6 +62,10 @@ class ShaneCallDetailActivity : AppCompatActivity() {
 
         b.btnBack.setOnClickListener { finish() }
         b.btnSaveSend.setOnClickListener { saveAndSend() }
+        b.cbVeryUrgent.setOnCheckedChangeListener { _, checked ->
+            updatePriorityUi(checked)
+        }
+        updatePriorityUi(false)
 
         val immediateNumber = intent.getStringExtra(EXTRA_PHONE_RAW).orEmpty()
             .ifBlank { intent.getStringExtra(EXTRA_PHONE_NORMALIZED).orEmpty() }
@@ -146,32 +151,95 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         }
 
         b.tvMarketingStatus.text =
-            "Select one or more employees. Fireblade will open each selected WhatsApp chat with the message filled in."
+            "Choose one or more people. Fireblade opens each selected WhatsApp chat with the message ready."
 
-        val padVertical = (6 * resources.displayMetrics.density).toInt()
         marketingRecipients.forEach { recipient ->
-            val checkbox = CheckBox(this).apply {
-                text = if (recipient.available) {
-                    recipient.employeeName
+            val row = layoutInflater.inflate(
+                R.layout.row_shane_marketing_recipient,
+                b.marketingEmployeeList,
+                false
+            )
+            val root = row.findViewById<android.view.View>(R.id.marketingRowRoot)
+            val initials = row.findViewById<TextView>(R.id.tvMarketingInitials)
+            val name = row.findViewById<TextView>(R.id.tvMarketingName)
+            val availability = row.findViewById<TextView>(R.id.tvMarketingAvailability)
+            val checkbox = row.findViewById<CheckBox>(R.id.cbMarketingSelect)
+
+            initials.text = marketingInitials(recipient.employeeName)
+            name.text = recipient.employeeName
+            availability.text =
+                if (recipient.available && recipient.phoneNumber.isNotBlank()) {
+                    "Ready on WhatsApp"
                 } else {
-                    recipient.employeeName + " • WhatsApp number unavailable"
+                    "WhatsApp number unavailable"
                 }
-                isEnabled = recipient.available
-                isChecked = selectedMarketingEmployeeIds.contains(recipient.employeeId)
-                setPadding(0, padVertical, 0, padVertical)
-                setOnCheckedChangeListener { _, checked ->
-                    if (checked) {
-                        selectedMarketingEmployeeIds += recipient.employeeId
-                    } else {
-                        selectedMarketingEmployeeIds -= recipient.employeeId
+
+            val available = recipient.available && recipient.phoneNumber.isNotBlank()
+            checkbox.isEnabled = available
+            checkbox.isChecked = selectedMarketingEmployeeIds.contains(recipient.employeeId)
+            root.isEnabled = available
+            root.alpha = if (available) 1f else 0.62f
+
+            fun renderRowState(selected: Boolean) {
+                root.setBackgroundResource(
+                    when {
+                        !available -> R.drawable.bg_shane_employee_row_unavailable
+                        selected -> R.drawable.bg_shane_employee_row_selected
+                        else -> R.drawable.bg_shane_employee_row
                     }
-                    updateMarketingSelectionUi()
-                }
+                )
+                availability.setTextColor(
+                    when {
+                        !available -> android.graphics.Color.parseColor("#8D877E")
+                        selected -> android.graphics.Color.parseColor("#174EA6")
+                        else -> android.graphics.Color.parseColor("#6B665E")
+                    }
+                )
             }
-            b.marketingEmployeeList.addView(checkbox)
+
+            renderRowState(checkbox.isChecked)
+            checkbox.setOnCheckedChangeListener { _, checked ->
+                if (checked) {
+                    selectedMarketingEmployeeIds += recipient.employeeId
+                } else {
+                    selectedMarketingEmployeeIds -= recipient.employeeId
+                }
+                renderRowState(checked)
+                updateMarketingSelectionUi()
+            }
+            root.setOnClickListener {
+                if (available) checkbox.isChecked = !checkbox.isChecked
+            }
+
+            b.marketingEmployeeList.addView(row)
         }
 
         updateMarketingSelectionUi()
+    }
+
+    private fun marketingInitials(name: String): String {
+        val parts = name.trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .take(2)
+        return parts.joinToString("") { it.first().uppercaseChar().toString() }
+            .ifBlank { "M" }
+    }
+
+    private fun updatePriorityUi(urgent: Boolean) {
+        b.priorityCard.setBackgroundResource(
+            if (urgent) R.drawable.bg_shane_priority_selected
+            else R.drawable.bg_shane_priority
+        )
+        b.tvPriorityLabel.setTextColor(
+            android.graphics.Color.parseColor(if (urgent) "#B43A3A" else "#171717")
+        )
+        b.tvPriorityHint.text =
+            if (urgent) "Marked VERY URGENT • immediate action required."
+            else "Mark only when immediate action is required."
+        b.tvPriorityHint.setTextColor(
+            android.graphics.Color.parseColor(if (urgent) "#9A3E3E" else "#7E7A73")
+        )
     }
 
     private fun updateMarketingSelectionUi() {
@@ -181,6 +249,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         selectedMarketingEmployeeIds.retainAll(availableIds)
 
         val count = selectedMarketingEmployeeIds.size
+        b.tvMarketingSelectedBadge.text = "$count selected"
         b.tvMarketingSelectedCount.text =
             if (count == 1) "1 employee selected" else "$count employees selected"
         b.btnSaveSend.text =
