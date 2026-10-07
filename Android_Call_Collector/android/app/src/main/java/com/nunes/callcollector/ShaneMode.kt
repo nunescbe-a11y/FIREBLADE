@@ -4,6 +4,11 @@ import android.content.Context
 import org.json.JSONObject
 
 object ShaneMode {
+    fun isShaneRecipientDevice(context: Context): Boolean {
+        val config = ConfigStore(context)
+        return config.deviceId.trim().equals("MKT-019", ignoreCase = true)
+    }
+
     fun isEnabled(context: Context): Boolean {
         val config = ConfigStore(context)
         if (config.department.equals("SHANE", ignoreCase = true)) return true

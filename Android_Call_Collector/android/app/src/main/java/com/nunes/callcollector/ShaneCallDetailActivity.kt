@@ -71,8 +71,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         b.rowCatalogue.setOnClickListener { b.cbCatalogue.isChecked = !b.cbCatalogue.isChecked }
         b.rowImage.setOnClickListener { b.cbImage.isChecked = !b.cbImage.isChecked }
 
-        val isShane = ShaneMode.isEnabled(this)
-        if (!isShane) {
+        val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
+        if (!isShaneRecipientDevice) {
             b.marketingRecipientSection.visibility = android.view.View.GONE
             b.tvMarketingSelectedCount.visibility = android.view.View.GONE
             b.btnSaveSend.text = "Save Details"
@@ -82,7 +82,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             .ifBlank { intent.getStringExtra(EXTRA_PHONE_NORMALIZED).orEmpty() }
         b.tvPhone.text = immediateNumber.ifBlank { "Preparing latest customer..." }
 
-        if (isShane) {
+        if (isShaneRecipientDevice) {
             loadMarketingRecipients()
         }
 
@@ -288,6 +288,10 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     }
 
     private fun updateMarketingSelectionUi() {
+        if (!ShaneMode.isShaneRecipientDevice(this)) {
+            b.btnSaveSend.text = "Save Details"
+            return
+        }
         val availableIds = marketingRecipients
             .filter { it.available && it.phoneNumber.isNotBlank() }
             .mapTo(hashSetOf()) { it.employeeId }
@@ -366,8 +370,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val image = b.cbImage.isChecked
         val urgent = b.cbVeryUrgent.isChecked
 
-        val isShane = ShaneMode.isEnabled(this)
-        val selectedRecipients = if (isShane) {
+        val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
+        val selectedRecipients = if (isShaneRecipientDevice) {
             marketingRecipients.filter {
                 it.available &&
                     it.phoneNumber.isNotBlank() &&
@@ -445,7 +449,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
 
             b.btnSaveSend.isEnabled = true
 
-            if (!isShane) {
+            if (!isShaneRecipientDevice) {
                 Toast.makeText(this@ShaneCallDetailActivity, "Details saved and syncing to Fireblade portal", Toast.LENGTH_SHORT).show()
                 finish()
                 return@launch

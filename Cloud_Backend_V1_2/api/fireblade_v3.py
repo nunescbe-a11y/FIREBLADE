@@ -169,6 +169,9 @@ def install_routes(app, db, health_model):
         device_id = device_id.strip().upper()
         authorize(db, device_id, x_fireblade_token)
 
+        if device_id != "MKT-019":
+            raise HTTPException(403, "Marketing recipient workflow is restricted to authorized device MKT-019")
+
         _, assignments = db(
             "GET",
             "fireblade_device_assignments?"

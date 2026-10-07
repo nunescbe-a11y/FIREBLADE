@@ -218,20 +218,19 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:orientation="horizontal">
+                android:orientation="vertical">
 
                 <LinearLayout
                     android:id="@+id/rowQuotation"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:background="@drawable/bg_shane_checkbox_row"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="4dp"
-                    android:paddingTop="2dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="2dp">
+                    android:paddingStart="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="4dp">
 
                     <CheckBox
                         android:id="@+id/cbQuotation"
@@ -241,27 +240,28 @@
 
                     <TextView
                         android:id="@+id/tvQuotationLabel"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:fontFamily="@font/source_serif_4"
+                        android:maxLines="1"
+                        android:ellipsize="none"
                         android:text="Quotation"
                         android:textColor="#171717"
-                        android:textSize="12sp" />
+                        android:textSize="14sp" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/rowCatalogue"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:layout_weight="1"
+                    android:layout_marginTop="6dp"
                     android:background="@drawable/bg_shane_checkbox_row"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="4dp"
-                    android:paddingTop="2dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="2dp">
+                    android:paddingStart="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="4dp">
 
                     <CheckBox
                         android:id="@+id/cbCatalogue"
@@ -271,27 +271,28 @@
 
                     <TextView
                         android:id="@+id/tvCatalogueLabel"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:fontFamily="@font/source_serif_4"
+                        android:maxLines="1"
+                        android:ellipsize="none"
                         android:text="Catalogue"
                         android:textColor="#171717"
-                        android:textSize="12sp" />
+                        android:textSize="14sp" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/rowImage"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:layout_weight="1"
+                    android:layout_marginTop="6dp"
                     android:background="@drawable/bg_shane_checkbox_row"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingStart="4dp"
-                    android:paddingTop="2dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="2dp">
+                    android:paddingStart="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="4dp">
 
                     <CheckBox
                         android:id="@+id/cbImage"
@@ -301,12 +302,14 @@
 
                     <TextView
                         android:id="@+id/tvImageLabel"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:fontFamily="@font/source_serif_4"
+                        android:maxLines="1"
+                        android:ellipsize="none"
                         android:text="Image"
                         android:textColor="#171717"
-                        android:textSize="12sp" />
+                        android:textSize="14sp" />
                 </LinearLayout>
             </LinearLayout>
 
