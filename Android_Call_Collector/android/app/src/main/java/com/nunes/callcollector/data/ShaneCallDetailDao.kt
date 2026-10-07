@@ -44,6 +44,13 @@ interface ShaneCallDetailDao {
     @Query("SELECT * FROM shane_call_details ORDER BY callStartedAtEpochMs DESC LIMIT :limit")
     suspend fun latestAll(limit: Int = 10000): List<ShaneCallDetailEntity>
 
+    @Query(
+        "SELECT * FROM shane_call_details " +
+            "WHERE callStartedAtEpochMs >= :startEpochMs AND callStartedAtEpochMs < :endEpochMs " +
+            "ORDER BY callStartedAtEpochMs DESC"
+    )
+    suspend fun forDateRange(startEpochMs: Long, endEpochMs: Long): List<ShaneCallDetailEntity>
+
     @Query("SELECT * FROM shane_call_details WHERE synced = 0 AND syncState = 'PENDING' ORDER BY updatedAtEpochMs ASC LIMIT :limit")
     suspend fun pending(limit: Int = 100): List<ShaneCallDetailEntity>
 

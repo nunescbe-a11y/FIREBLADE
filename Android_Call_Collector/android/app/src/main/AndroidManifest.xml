@@ -153,7 +153,10 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
         <activity android:name=".HistoryActivity" android:exported="false" />
-        <activity android:name=".ShaneCallDetailActivity" android:exported="false" />
+        <activity
+            android:name=".ShaneCallDetailActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CallbacksActivity" android:exported="false" />
         <activity android:name=".EmployeeHomeActivity" android:exported="false" />
         <activity android:name=".DeviceAdminActivity" android:exported="false" />

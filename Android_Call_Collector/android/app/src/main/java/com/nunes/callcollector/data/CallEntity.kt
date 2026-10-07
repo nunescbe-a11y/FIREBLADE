@@ -4,7 +4,17 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "calls", indices = [Index(value = ["sourceCallId"], unique = true)])
+@Entity(
+    tableName = "calls",
+    indices = [
+        Index(value = ["sourceCallId"], unique = true),
+        Index(value = ["startedAtEpochMs"]),
+        Index(value = ["simSlotIndex"]),
+        Index(value = ["synced"]),
+        Index(value = ["startedAtEpochMs", "simSlotIndex"]),
+        Index(value = ["startedAtEpochMs", "direction"])
+    ]
+)
 data class CallEntity(
     @PrimaryKey(autoGenerate = true) val localId: Long = 0,
     val sourceCallId: String,

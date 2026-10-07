@@ -31,6 +31,7 @@ type ReportRow = {
   customer_company: string;
   customer_phone: string;
   product_name: string;
+  location?: string | null;
   requirement_details: string | null;
   notes: string | null;
   information_items: InformationItem[];
@@ -108,6 +109,7 @@ export default function InformationSentReportClient() {
         row.customer_company,
         row.customer_phone,
         row.product_name,
+        row.location,
         row.requirement_details,
         row.notes,
       ].filter(Boolean).some((value) => String(value).toLowerCase().includes(q));
@@ -146,7 +148,7 @@ export default function InformationSentReportClient() {
         </label>
         <label className="information-report-search">
           <span>Search</span>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer, product, phone..." />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer, product, location, phone..." />
         </label>
         <button className="secondary-button" disabled={loading} onClick={() => void load()}>{loading ? "Refreshing..." : "Refresh"}</button>
       </section>
@@ -165,15 +167,16 @@ export default function InformationSentReportClient() {
                 <th>Employee</th>
                 <th>Customer</th>
                 <th>Product</th>
+                <th>Location</th>
                 {types.map((type) => <th key={type.id}>{type.label} Sent</th>)}
                 <th>Call Date / Time</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4 + types.length} className="empty-state">Loading report...</td></tr>
+                <tr><td colSpan={5 + types.length} className="empty-state">Loading report...</td></tr>
               ) : visible.length === 0 ? (
-                <tr><td colSpan={4 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
+                <tr><td colSpan={5 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
               ) : visible.map((row) => {
                 const itemById = new Map((row.information_items || []).map((item) => [item.id, item]));
                 return (
@@ -181,6 +184,7 @@ export default function InformationSentReportClient() {
                     <td><strong>{row.employee_name || "Unassigned"}</strong><small>{row.employee_id}</small></td>
                     <td><strong>{row.customer_name || "Customer"}</strong><small>{row.customer_company || row.customer_phone}</small>{row.customer_company && <small>{row.customer_phone}</small>}</td>
                     <td><strong>{row.product_name}</strong>{row.requirement_details && <small>{row.requirement_details}</small>}{row.notes && <small>Notes: {row.notes}</small>}</td>
+                    <td><strong>{row.location || "—"}</strong></td>
                     {types.map((type) => {
                       const item = itemById.get(type.id);
                       return (

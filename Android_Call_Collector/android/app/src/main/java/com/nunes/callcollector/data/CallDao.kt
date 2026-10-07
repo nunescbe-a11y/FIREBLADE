@@ -15,6 +15,13 @@ interface CallDao {
 
     @Query(
         "SELECT * FROM calls " +
+            "WHERE startedAtEpochMs >= :startEpochMs AND startedAtEpochMs < :endEpochMs " +
+            "ORDER BY startedAtEpochMs DESC"
+    )
+    suspend fun forDateRange(startEpochMs: Long, endEpochMs: Long): List<CallEntity>
+
+    @Query(
+        "SELECT * FROM calls " +
             "WHERE durationSeconds > 0 " +
             "AND direction IN ('INCOMING_ANSWERED', 'OUTGOING_CONNECTED') " +
             "ORDER BY startedAtEpochMs DESC LIMIT 1"

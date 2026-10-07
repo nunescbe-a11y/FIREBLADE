@@ -57,6 +57,7 @@ export type IncomingCall = {
   contact_id: string | null;
   person_name: string | null;
   company_name: string | null;
+  location?: string | null;
   known_contact_count: number;
 };
 
@@ -65,6 +66,7 @@ export type Contact = {
   phone_number_normalized: string;
   person_name: string;
   company_name: string | null;
+  location?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

@@ -89,6 +89,9 @@ class ShaneCallDetail(BaseModel):
     product_asked: str = Field(default="", max_length=300)
     location: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=4000)
+    quotation: bool = False
+    catalogue: bool = False
+    image: bool = False
     very_urgent: bool = False
     updated_at_epoch_ms: int = Field(gt=0)
 
@@ -360,6 +363,7 @@ def install_routes(app, db, health_model):
         return {"ok": True}
 
     @app.post("/api/v3/shane/call-details")
+    @app.post("/api/v3/call-details")
     def save_shane_call_details(
         body: ShaneCallDetail,
         x_fireblade_token: Optional[str] = Header(default=None)
@@ -389,31 +393,9 @@ def install_routes(app, db, health_model):
             "&or=(assigned_until.is.null,assigned_until.gte." + quote(started_iso, safe="") + ")"
         )
         if not assignments or len(assignments) != 1:
-            raise HTTPException(409, "Shane call details require one active employee assignment")
+            raise HTTPException(409, "Call details require one active employee assignment")
 
         employee_id = assignments[0].get("employee_id")
-        _, employees = db(
-            "GET",
-            "fireblade_employees?select=employee_id,department_id"
-            "&employee_id=eq." + quote(employee_id, safe="") +
-            "&active=eq.true&limit=1"
-        )
-        if not employees or not employees[0].get("department_id"):
-            raise HTTPException(403, "Employee department is not configured")
-
-        department_id = employees[0]["department_id"]
-        _, departments = db(
-            "GET",
-            "fireblade_departments?select=name&id=eq." +
-            quote(str(department_id), safe="") +
-            "&active=eq.true&limit=1"
-        )
-        department_name = (
-            str(departments[0].get("name", "")).strip().upper()
-            if departments else ""
-        )
-        if department_name != "SHANE":
-            raise HTTPException(403, "Shane call details are restricted to the SHANE department")
 
         call_id = None
         if source_call_id:
@@ -425,6 +407,102 @@ def install_routes(app, db, health_model):
             )
             if calls:
                 call_id = calls[0]["id"]
+        if not call_id and body.phone_number_normalized:
+            _, calls = db(
+                "GET",
+                "phase0_calls?select=id&device_id=eq." + quote(device_id, safe="") +
+                "&phone_number_normalized=eq." + quote(body.phone_number_normalized, safe="") +
+                f"&started_at_epoch_ms=gte.{body.call_started_at_epoch_ms - 90000}" +
+                f"&started_at_epoch_ms=lte.{body.call_started_at_epoch_ms + 90000}" +
+                "&order=started_at_epoch_ms.desc&limit=1"
+            )
+            if calls:
+                call_id = calls[0]["id"]
+
+        # Structured enquiry sync to contacts, enquiries, and information sent
+        if call_id:
+            try:
+                contact_id = None
+                norm_phone = body.phone_number_normalized.strip()
+                if norm_phone:
+                    _, contacts = db(
+                        "GET",
+                        "fireblade_contacts?select=id&phone_number_normalized=eq." + quote(norm_phone, safe="") + "&limit=1"
+                    )
+                    if contacts:
+                        contact_id = contacts[0]["id"]
+                        patch_contact = {}
+                        if body.customer_name.strip():
+                            patch_contact["person_name"] = body.customer_name.strip()
+                        if body.location.strip():
+                            patch_contact["location"] = body.location.strip()
+                        if patch_contact:
+                            db("PATCH", f"fireblade_contacts?id=eq.{quote(str(contact_id), safe='')}", patch_contact)
+                    else:
+                        _, created_c = db("POST", "fireblade_contacts", {
+                            "phone_number_raw": body.phone_number_raw.strip(),
+                            "phone_number_normalized": norm_phone,
+                            "person_name": body.customer_name.strip(),
+                            "location": body.location.strip(),
+                            "created_by": employee_id
+                        }, "return=representation")
+                        if created_c and len(created_c) > 0:
+                            contact_id = created_c[0].get("id")
+
+                if contact_id:
+                    _, enq_existing = db("GET", f"fireblade_call_enquiries?select=id&call_id=eq.{call_id}&limit=1")
+                    enquiry_id = None
+                    if enq_existing:
+                        enquiry_id = enq_existing[0]["id"]
+                        db("PATCH", f"fireblade_call_enquiries?id=eq.{quote(str(enquiry_id), safe='')}", {
+                            "contact_id": contact_id,
+                            "product_name": body.product_asked.strip(),
+                            "location": body.location.strip(),
+                            "notes": body.notes.strip(),
+                            "status": "COMPLETED",
+                            "resolution_outcome": "DETAILS_ENTERED",
+                            "updated_by": employee_id,
+                            "updated_at": utcnow().isoformat()
+                        })
+                    else:
+                        _, created_e = db("POST", "fireblade_call_enquiries", {
+                            "call_id": call_id,
+                            "contact_id": contact_id,
+                            "product_name": body.product_asked.strip(),
+                            "location": body.location.strip(),
+                            "notes": body.notes.strip(),
+                            "status": "COMPLETED",
+                            "entered_by": employee_id,
+                            "resolution_outcome": "DETAILS_ENTERED",
+                            "resolution_at": utcnow().isoformat(),
+                            "resolution_by": employee_id,
+                            "created_at": utcnow().isoformat(),
+                            "updated_at": utcnow().isoformat()
+                        }, "return=representation")
+                        if created_e and len(created_e) > 0:
+                            enquiry_id = created_e[0].get("id")
+
+                    if enquiry_id:
+                        _, info_types = db("GET", "fireblade_information_types?select=id,code&active=eq.true")
+                        if info_types:
+                            type_map = {t["code"].upper(): t["id"] for t in info_types if "code" in t and "id" in t}
+                            bool_map = {
+                                "QUOTATION": bool(body.quotation),
+                                "CATALOGUE": bool(body.catalogue),
+                                "IMAGE": bool(body.image)
+                            }
+                            for code, is_sent in bool_map.items():
+                                if code in type_map:
+                                    type_id = type_map[code]
+                                    db("POST", "fireblade_enquiry_information_sent?on_conflict=enquiry_id,information_type_id", {
+                                        "enquiry_id": enquiry_id,
+                                        "information_type_id": type_id,
+                                        "sent": is_sent,
+                                        "answered_by": employee_id,
+                                        "updated_at": utcnow().isoformat()
+                                    }, "resolution=merge-duplicates,return=minimal")
+            except Exception:
+                pass
 
         _, existing = db(
             "GET",

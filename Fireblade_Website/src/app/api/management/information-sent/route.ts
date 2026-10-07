@@ -24,6 +24,7 @@ type ReportRow = {
   customer_company: string;
   customer_phone: string;
   product_name: string;
+  location?: string | null;
   requirement_details: string | null;
   notes: string | null;
   information_items: InformationItem[];
@@ -66,6 +67,7 @@ function reportRecord(row: ReportRow, types: InformationTypeRow[]) {
     "Customer Company": row.customer_company || "",
     "Customer Phone": row.customer_phone || "",
     "Product Name": row.product_name || "",
+    "Location": row.location || "",
   };
 
   for (const type of types) {
@@ -124,6 +126,7 @@ export async function GET(request: Request) {
       customer_company: "",
       customer_phone: "",
       product_name: "",
+      location: "",
       requirement_details: "",
       notes: "",
       information_items: [],

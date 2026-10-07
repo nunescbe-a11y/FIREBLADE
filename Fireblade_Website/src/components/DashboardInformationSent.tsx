@@ -29,6 +29,7 @@ type ReportRow = {
   customer_company: string;
   customer_phone: string;
   product_name: string;
+  location?: string | null;
   requirement_details: string | null;
   notes: string | null;
   information_items: InformationItem[];
@@ -107,6 +108,7 @@ export default function DashboardInformationSent() {
         row.customer_company,
         row.customer_phone,
         row.product_name,
+        row.location,
         row.requirement_details,
         row.notes,
       ].filter(Boolean).some((value) => String(value).toLowerCase().includes(q));
@@ -162,7 +164,7 @@ export default function DashboardInformationSent() {
 
             <label className="overview-information-search">
               <span>Search</span>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer, product, phone..." />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer, product, location, phone..." />
             </label>
 
             <button type="button" className="secondary-button" disabled={loading} onClick={() => void load()}>
@@ -184,6 +186,7 @@ export default function DashboardInformationSent() {
                   <th>Employee</th>
                   <th>Customer</th>
                   <th>Product</th>
+                  <th>Location</th>
                   {types.map((type) => <th key={type.id}>{type.label}</th>)}
                   <th>Call Date / Time</th>
                 </tr>
@@ -191,9 +194,9 @@ export default function DashboardInformationSent() {
 
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={4 + types.length} className="empty-state">Loading information sent...</td></tr>
+                  <tr><td colSpan={5 + types.length} className="empty-state">Loading information sent...</td></tr>
                 ) : visible.length === 0 ? (
-                  <tr><td colSpan={4 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
+                  <tr><td colSpan={5 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
                 ) : visible.map((row) => {
                   const itemById = new Map((row.information_items || []).map((item) => [item.id, item]));
                   return (
@@ -212,6 +215,10 @@ export default function DashboardInformationSent() {
                       <td>
                         <strong>{row.product_name}</strong>
                         {row.requirement_details && <small>{row.requirement_details}</small>}
+                      </td>
+
+                      <td>
+                        <strong>{row.location || "—"}</strong>
                       </td>
 
                       {types.map((type) => {

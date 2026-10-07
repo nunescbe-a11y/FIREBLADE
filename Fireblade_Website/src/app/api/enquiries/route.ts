@@ -28,6 +28,7 @@ export async function POST(request: Request) {
   const companyName = String(body.companyName || "").trim();
   const productName = String(body.productName || "").trim();
   const requirementDetails = String(body.requirementDetails || "").trim();
+  const location = String(body.location || "").trim();
   const notes = String(body.notes || "").trim();
   const requestedContactId = String(body.contactId || "").trim();
   const commonRemarks = String(body.commonRemarks || "").trim();
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           person_name: personName,
           company_name: companyName || null,
+          location: location || "",
           updated_at: new Date().toISOString(),
         }),
       });
@@ -106,6 +108,7 @@ export async function POST(request: Request) {
           phone_number_normalized: phone,
           person_name: personName,
           company_name: companyName || null,
+          location: location || "",
           created_by: session.username,
           updated_at: new Date().toISOString(),
         }),
@@ -122,6 +125,7 @@ export async function POST(request: Request) {
         call_id: callId,
         contact_id: contactId,
         product_name: productName,
+        location: location || "",
         requirement_details: requirementDetails || null,
         notes: notes || null,
         status: "COMPLETED",

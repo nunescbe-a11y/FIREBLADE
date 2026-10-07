@@ -114,8 +114,10 @@ class EmployeeHomeActivity : AppCompatActivity() {
         refreshJob = lifecycleScope.launch {
             val data = withContext(Dispatchers.IO) {
                 val dao = AppDatabase.get(this@EmployeeHomeActivity).callDao()
+                val dayStart = FirebladeDatePolicy.startOfDay(day)
+                val dayEnd = System.currentTimeMillis().coerceAtLeast(FirebladeDatePolicy.nextDayStart(dayStart))
                 val local = CallbackEngine.computeForDay(
-                    calls = dao.latest(10_000),
+                    calls = dao.forDateRange(dayStart, dayEnd),
                     selectedDayStart = day
                 )
                 val pendingUpload = dao.pendingCount()

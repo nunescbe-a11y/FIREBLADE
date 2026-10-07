@@ -49,7 +49,15 @@ class HistoryActivity : AppCompatActivity() {
         SIM_1("SIM 1"),
         SIM_2("SIM 2")
     }
+    private enum class CallFilter(val label: String) {
+        SUPPORTED("Supported Calls"),
+        INCOMING("Incoming"),
+        OUTGOING("Outgoing"),
+        MISSED("Missed / Not Answered"),
+        ALL("All Calls")
+    }
     private var selectedSimFilter: SimFilter = SimFilter.ALL
+    private var selectedCallFilter: CallFilter = CallFilter.SUPPORTED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,19 +77,40 @@ class HistoryActivity : AppCompatActivity() {
         b.btnBack.setOnClickListener { finish() }
         b.btnDate.setOnClickListener { openDatePicker() }
 
-        setupSimFilterSpinner()
+        setupFilters()
     }
 
-    private fun setupSimFilterSpinner() {
-        val options = SimFilter.values().map { it.label }
-        val adapter = android.widget.ArrayAdapter(
+    private fun setupFilters() {
+        val callOptions = CallFilter.values().map { it.label }
+        val callAdapter = android.widget.ArrayAdapter(
             this,
             android.R.layout.simple_spinner_item,
-            options
+            callOptions
         ).apply {
             setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
-        b.spinnerSimFilter.adapter = adapter
+        b.spinnerCallFilter.adapter = callAdapter
+        b.spinnerCallFilter.setSelection(selectedCallFilter.ordinal)
+        b.spinnerCallFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newFilter = CallFilter.values().getOrElse(position) { CallFilter.ALL }
+                if (newFilter != selectedCallFilter) {
+                    selectedCallFilter = newFilter
+                    refresh()
+                }
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+
+        val simOptions = SimFilter.values().map { it.label }
+        val simAdapter = android.widget.ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            simOptions
+        ).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        b.spinnerSimFilter.adapter = simAdapter
         b.spinnerSimFilter.setSelection(selectedSimFilter.ordinal)
         b.spinnerSimFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
@@ -140,18 +169,35 @@ class HistoryActivity : AppCompatActivity() {
         }
 
         val day = selectedDayStart
+        val nextDay = FirebladeDatePolicy.nextDayStart(day)
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                val local = AppDatabase.get(this@HistoryActivity).callDao().latest(10_000)
-                    .filter {
-                        it.startedAtEpochMs >= day &&
-                            it.startedAtEpochMs < FirebladeDatePolicy.nextDayStart(day)
-                    }
-                    .sortedByDescending { it.startedAtEpochMs }
+            // Step 1: Render local database immediately without waiting for server
+            val localCalls = withContext(Dispatchers.IO) {
+                AppDatabase.get(this@HistoryActivity).callDao().forDateRange(day, nextDay)
                     .map { it.toEmployeeCall() }
+            }
+            val cached = withContext(Dispatchers.IO) {
+                EmployeeWorkspaceApi.loadCached(config, day)
+            }
+            val initialCalls = if (cached != null && cached.historySupported && cached.calls.isNotEmpty()) {
+                cached.calls
+            } else {
+                localCalls
+            }
+            val initialSource = if (cached != null && cached.historySupported && cached.calls.isNotEmpty()) {
+                Source.CACHE
+            } else {
+                Source.LOCAL
+            }
 
-                if (config.deviceToken.isNotBlank() && config.apiUrl.startsWith("https://")) {
+            if (day == selectedDayStart) {
+                render(initialCalls, initialSource, "")
+            }
+
+            // Step 2: Background cloud refresh
+            if (config.deviceToken.isNotBlank() && config.apiUrl.startsWith("https://")) {
+                val serverResult = withContext(Dispatchers.IO) {
                     try {
                         val workspace = EmployeeWorkspaceApi.load(config, day)
                         if (workspace.historySupported) {
@@ -161,42 +207,34 @@ class HistoryActivity : AppCompatActivity() {
                                 if (workspace.historyLimitReached) "Showing the newest 2,000 calls for this date." else ""
                             )
                         } else {
-                            Triple(local, Source.LOCAL, "Server history upgrade is not active yet.")
+                            Triple(localCalls, Source.LOCAL, "Server history upgrade is not active yet.")
                         }
                     } catch (e: DeviceHttpError) {
                         if (e.status in listOf(401, 403, 409)) {
-                            Triple(emptyList(), Source.BLOCKED, e.message ?: "")
+                            Triple(emptyList<EmployeeCall>(), Source.BLOCKED, e.message ?: "")
                         } else {
-                            val cached = EmployeeWorkspaceApi.loadCached(config, day)
-                            if (cached != null && cached.historySupported) Triple(cached.calls, Source.CACHE, e.message ?: "")
-                            else Triple(local, Source.LOCAL, e.message ?: "")
+                            null
                         }
-                    } catch (e: Exception) {
-                        val cached = EmployeeWorkspaceApi.loadCached(config, day)
-                        if (cached != null && cached.historySupported) Triple(cached.calls, Source.CACHE, e.message ?: "")
-                        else Triple(local, Source.LOCAL, e.message ?: "")
+                    } catch (_: Exception) {
+                        null
                     }
-                } else {
-                    Triple(local, Source.LOCAL, "")
+                }
+                if (serverResult != null && day == selectedDayStart) {
+                    render(serverResult.first, serverResult.second, serverResult.third)
                 }
             }
-            if (day == selectedDayStart) render(result.first, result.second, result.third)
         }
     }
 
     private fun refreshShaneLocalFirst() {
         val day = selectedDayStart
+        val nextDay = FirebladeDatePolicy.nextDayStart(day)
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             val data = withContext(Dispatchers.IO) {
                 val db = AppDatabase.get(this@HistoryActivity)
-                val calls = db.callDao().latest(10_000)
-                    .filter {
-                        it.startedAtEpochMs >= day &&
-                            it.startedAtEpochMs < FirebladeDatePolicy.nextDayStart(day)
-                    }
-                    .sortedByDescending { it.startedAtEpochMs }
-                val details = db.shaneCallDetailDao().latestAll(10_000)
+                val calls = db.callDao().forDateRange(day, nextDay)
+                val details = db.shaneCallDetailDao().forDateRange(day, nextDay)
                 calls to details
             }
             if (day == selectedDayStart) renderShane(data.first, data.second)
@@ -213,13 +251,29 @@ class HistoryActivity : AppCompatActivity() {
         b.tvSourceStatus.text =
             "Live local call history • background cloud sync stays out of the UI path"
 
-        val filteredLocalCalls = when (selectedSimFilter) {
+        val simFiltered = when (selectedSimFilter) {
             SimFilter.ALL -> localCalls
             SimFilter.SIM_1 -> localCalls.filter { it.simSlotIndex == 0 }
             SimFilter.SIM_2 -> localCalls.filter { it.simSlotIndex == 1 }
         }
 
-        val calls = filteredLocalCalls.toMutableList()
+        val typeFiltered = when (selectedCallFilter) {
+            CallFilter.ALL -> simFiltered
+            CallFilter.SUPPORTED -> simFiltered.filter {
+                it.direction in listOf("INCOMING_ANSWERED", "OUTGOING_CONNECTED")
+            }
+            CallFilter.INCOMING -> simFiltered.filter {
+                it.direction in listOf("INCOMING_ANSWERED", "INCOMING_RINGING", "INCOMING")
+            }
+            CallFilter.OUTGOING -> simFiltered.filter {
+                it.direction in listOf("OUTGOING_CONNECTED", "OUTGOING_ACTIVE", "OUTGOING")
+            }
+            CallFilter.MISSED -> simFiltered.filter {
+                it.direction in listOf("INCOMING_MISSED", "INCOMING_REJECTED", "OUTGOING_UNANSWERED")
+            }
+        }
+
+        val calls = typeFiltered.toMutableList()
         val live = LiveCallStore.snapshot(this)
         if (
             live != null &&
@@ -227,7 +281,15 @@ class HistoryActivity : AppCompatActivity() {
             live.startedAtEpochMs < FirebladeDatePolicy.nextDayStart(selectedDayStart)
         ) {
             val matchesSimFilter = selectedSimFilter == SimFilter.ALL
-            if (matchesSimFilter) {
+            val matchesCallFilter = when (selectedCallFilter) {
+                CallFilter.ALL -> true
+                CallFilter.SUPPORTED -> live.hadConversation
+                CallFilter.INCOMING -> live.direction == "INCOMING"
+                CallFilter.OUTGOING -> live.direction == "OUTGOING"
+                CallFilter.MISSED -> (live.direction == "INCOMING" && !live.hadConversation && live.state == "COMPLETED") ||
+                    (live.direction == "OUTGOING" && !live.hadConversation && live.state == "COMPLETED")
+            }
+            if (matchesSimFilter && matchesCallFilter) {
                 val normalized = PhoneNumberUtil.normalizeIndia(live.phoneNumber)
                 val alreadyPresent = calls.any {
                     abs(it.startedAtEpochMs - live.startedAtEpochMs) <= 90_000L &&
@@ -353,10 +415,26 @@ class HistoryActivity : AppCompatActivity() {
             Source.LOCAL -> "Local phone history - employee-wide server history is temporarily unavailable"
         }
 
-        val filteredCalls = when (selectedSimFilter) {
+        val simFiltered = when (selectedSimFilter) {
             SimFilter.ALL -> calls
             SimFilter.SIM_1 -> calls.filter { it.simSlotIndex == 0 }
             SimFilter.SIM_2 -> calls.filter { it.simSlotIndex == 1 }
+        }
+
+        val filteredCalls = when (selectedCallFilter) {
+            CallFilter.ALL -> simFiltered
+            CallFilter.SUPPORTED -> simFiltered.filter {
+                it.direction in listOf("INCOMING_ANSWERED", "OUTGOING_CONNECTED")
+            }
+            CallFilter.INCOMING -> simFiltered.filter {
+                it.direction in listOf("INCOMING_ANSWERED", "INCOMING_RINGING", "INCOMING")
+            }
+            CallFilter.OUTGOING -> simFiltered.filter {
+                it.direction in listOf("OUTGOING_CONNECTED", "OUTGOING_ACTIVE", "OUTGOING")
+            }
+            CallFilter.MISSED -> simFiltered.filter {
+                it.direction in listOf("INCOMING_MISSED", "INCOMING_REJECTED", "OUTGOING_UNANSWERED")
+            }
         }
 
         b.historyList.removeAllViews()
@@ -407,10 +485,13 @@ class HistoryActivity : AppCompatActivity() {
             view.findViewById<TextView>(R.id.tvHistoryUrgent).visibility = View.GONE
 
             view.setOnClickListener {
-                val number = call.numberRaw.ifBlank { call.numberNormalized }
-                if (number.isNotBlank()) {
-                    startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null)))
-                }
+                startActivity(
+                    Intent(this, ShaneCallDetailActivity::class.java)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_SOURCE_CALL_ID, call.callId)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_PHONE_RAW, call.numberRaw)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_PHONE_NORMALIZED, call.numberNormalized)
+                        .putExtra(ShaneCallDetailActivity.EXTRA_STARTED_AT, call.startedAtEpochMs)
+                )
             }
             b.historyList.addView(view)
         }

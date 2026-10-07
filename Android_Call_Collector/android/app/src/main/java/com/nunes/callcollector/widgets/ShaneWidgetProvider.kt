@@ -39,7 +39,6 @@ object ShaneWidgetUpdater {
     private val scope = CoroutineScope(Dispatchers.IO)
 
     fun updateAll(context: Context) {
-        if (!ShaneMode.isEnabled(context)) return
         val manager = AppWidgetManager.getInstance(context)
 
         manager.getAppWidgetIds(
@@ -109,16 +108,14 @@ object ShaneWidgetUpdater {
 object WidgetModeCoordinator {
     fun sync(context: Context) {
         val appContext = context.applicationContext
-        val shane = ShaneMode.isEnabled(appContext)
         val pm = appContext.packageManager
 
-        setEnabled(pm, ComponentName(appContext, CallbackWidgetProvider::class.java), !shane)
-        setEnabled(pm, ComponentName(appContext, CallbackCompactWidgetProvider::class.java), !shane)
-        setEnabled(pm, ComponentName(appContext, ShaneAddDetailsWidgetProvider::class.java), shane)
-        setEnabled(pm, ComponentName(appContext, ShaneOpenHistoryWidgetProvider::class.java), shane)
-        setEnabled(pm, ComponentName(appContext, ShaneMissedCallsWidgetProvider::class.java), shane)
+        // All 3 widgets (Add Details, Open History, Missed Calls) are enabled for all employees
+        setEnabled(pm, ComponentName(appContext, ShaneAddDetailsWidgetProvider::class.java), true)
+        setEnabled(pm, ComponentName(appContext, ShaneOpenHistoryWidgetProvider::class.java), true)
+        setEnabled(pm, ComponentName(appContext, ShaneMissedCallsWidgetProvider::class.java), true)
 
-        if (shane) ShaneWidgetUpdater.updateAll(appContext)
+        ShaneWidgetUpdater.updateAll(appContext)
     }
 
     private fun setEnabled(pm: PackageManager, component: ComponentName, enabled: Boolean) {

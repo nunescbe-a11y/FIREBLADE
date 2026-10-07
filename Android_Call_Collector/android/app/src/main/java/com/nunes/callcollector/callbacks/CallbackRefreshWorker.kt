@@ -22,8 +22,9 @@ class CallbackRefreshWorker(context: Context, params: WorkerParameters) : Corout
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val previousKeys = CallbackSnapshotStore.activeKeys(applicationContext)
-            val calls = AppDatabase.get(applicationContext).callDao().latest(10_000)
             val today = FirebladeDatePolicy.todayStart()
+            val todayEnd = System.currentTimeMillis().coerceAtLeast(FirebladeDatePolicy.nextDayStart(today))
+            val calls = AppDatabase.get(applicationContext).callDao().forDateRange(today, todayEnd)
             val localSummary = CallbackEngine.computeForDay(calls, today)
             val config = ConfigStore(applicationContext)
 

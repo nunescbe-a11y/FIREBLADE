@@ -120,6 +120,9 @@ object ApiClient {
             put("product_asked", detail.productAsked)
             put("location", detail.location)
             put("notes", detail.notes)
+            put("quotation", detail.quotation)
+            put("catalogue", detail.catalogue)
+            put("image", detail.image)
             put("very_urgent", detail.veryUrgent)
             put("updated_at_epoch_ms", detail.updatedAtEpochMs)
         }

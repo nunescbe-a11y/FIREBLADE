@@ -67,11 +67,24 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         }
         updatePriorityUi(false)
 
+        b.rowQuotation.setOnClickListener { b.cbQuotation.isChecked = !b.cbQuotation.isChecked }
+        b.rowCatalogue.setOnClickListener { b.cbCatalogue.isChecked = !b.cbCatalogue.isChecked }
+        b.rowImage.setOnClickListener { b.cbImage.isChecked = !b.cbImage.isChecked }
+
+        val isShane = ShaneMode.isEnabled(this)
+        if (!isShane) {
+            b.marketingRecipientSection.visibility = android.view.View.GONE
+            b.tvMarketingSelectedCount.visibility = android.view.View.GONE
+            b.btnSaveSend.text = "Save Details"
+        }
+
         val immediateNumber = intent.getStringExtra(EXTRA_PHONE_RAW).orEmpty()
             .ifBlank { intent.getStringExtra(EXTRA_PHONE_NORMALIZED).orEmpty() }
         b.tvPhone.text = immediateNumber.ifBlank { "Preparing latest customer..." }
 
-        loadMarketingRecipients()
+        if (isShane) {
+            loadMarketingRecipients()
+        }
 
         lifecycleScope.launch {
             val resolved = withContext(Dispatchers.IO) { resolveTarget() }
@@ -109,10 +122,42 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             b.etCustomerName.setText(current?.customerName ?: profile?.customerName.orEmpty())
             b.etProductAsked.setText(current?.productAsked.orEmpty())
             b.etLocation.setText(current?.location ?: profile?.location.orEmpty())
-            b.etNotes.setText(current?.notes.orEmpty())
+
+            val rawNotes = current?.notes.orEmpty()
+            val (cleanedNotes, legQuotation, legCatalogue, legImage) = parseNotesCheckboxes(rawNotes)
+            b.etNotes.setText(cleanedNotes)
+            b.cbQuotation.isChecked = current?.quotation == true || legQuotation
+            b.cbCatalogue.isChecked = current?.catalogue == true || legCatalogue
+            b.cbImage.isChecked = current?.image == true || legImage
+
             b.cbVeryUrgent.isChecked = current?.veryUrgent == true
         }
     }
+
+    private fun parseNotesCheckboxes(notes: String): CheckboxParseResult {
+        var reqQuotation = false
+        var reqCatalogue = false
+        var reqImage = false
+        var cleaned = notes
+
+        val regex = Regex("""\[Required:\s*([^\]]+)\]""")
+        val match = regex.find(notes)
+        if (match != null) {
+            val items = match.groupValues[1].split(",").map { it.trim().lowercase() }
+            if (items.contains("quotation")) reqQuotation = true
+            if (items.contains("catalogue")) reqCatalogue = true
+            if (items.contains("image")) reqImage = true
+            cleaned = notes.removeRange(match.range).trim()
+        }
+        return CheckboxParseResult(cleaned, reqQuotation, reqCatalogue, reqImage)
+    }
+
+    private data class CheckboxParseResult(
+        val cleanedNotes: String,
+        val quotation: Boolean,
+        val catalogue: Boolean,
+        val image: Boolean
+    )
 
     override fun onResume() {
         super.onResume()
@@ -316,12 +361,19 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val productAsked = b.etProductAsked.text?.toString().orEmpty().trim()
         val location = b.etLocation.text?.toString().orEmpty().trim()
         val notes = b.etNotes.text?.toString().orEmpty().trim()
+        val quotation = b.cbQuotation.isChecked
+        val catalogue = b.cbCatalogue.isChecked
+        val image = b.cbImage.isChecked
         val urgent = b.cbVeryUrgent.isChecked
-        val selectedRecipients = marketingRecipients.filter {
-            it.available &&
-                it.phoneNumber.isNotBlank() &&
-                selectedMarketingEmployeeIds.contains(it.employeeId)
-        }
+
+        val isShane = ShaneMode.isEnabled(this)
+        val selectedRecipients = if (isShane) {
+            marketingRecipients.filter {
+                it.available &&
+                    it.phoneNumber.isNotBlank() &&
+                    selectedMarketingEmployeeIds.contains(it.employeeId)
+            }
+        } else emptyList()
 
         b.btnSaveSend.isEnabled = false
         lifecycleScope.launch {
@@ -338,6 +390,9 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         productAsked = productAsked,
                         location = location,
                         notes = notes,
+                        quotation = quotation,
+                        catalogue = catalogue,
+                        image = image,
                         veryUrgent = urgent,
                         synced = false,
                         syncState = "PENDING",
@@ -355,6 +410,9 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         productAsked = productAsked,
                         location = location,
                         notes = notes,
+                        quotation = quotation,
+                        catalogue = catalogue,
+                        image = image,
                         veryUrgent = urgent,
                         synced = false,
                         syncState = "PENDING",
@@ -385,17 +443,27 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(this@ShaneCallDetailActivity)
             } catch (_: Exception) { }
 
+            b.btnSaveSend.isEnabled = true
+
+            if (!isShane) {
+                Toast.makeText(this@ShaneCallDetailActivity, "Details saved and syncing to Fireblade portal", Toast.LENGTH_SHORT).show()
+                finish()
+                return@launch
+            }
+
             val message = buildMessage(
                 customerName = customerName,
                 phone = call.phoneRaw.ifBlank { call.phoneNormalized },
                 productAsked = productAsked,
                 location = location,
                 notes = notes,
+                quotation = quotation,
+                catalogue = catalogue,
+                image = image,
                 urgent = urgent,
                 callStartedAtEpochMs = call.startedAtEpochMs
             )
 
-            b.btnSaveSend.isEnabled = true
             if (selectedRecipients.isEmpty()) {
                 openWhatsApp(message)
             } else {
@@ -410,6 +478,9 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         productAsked: String,
         location: String,
         notes: String,
+        quotation: Boolean,
+        catalogue: Boolean,
+        image: Boolean,
         urgent: Boolean,
         callStartedAtEpochMs: Long
     ): String {
@@ -430,10 +501,19 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             "Location: $location",
             "Date & Time: $sentDate • $sentTime"
         )
+        val infoItems = mutableListOf<String>()
+        if (quotation) infoItems += "Quotation"
+        if (catalogue) infoItems += "Catalogue"
+        if (image) infoItems += "Image"
+        if (infoItems.isNotEmpty()) {
+            sections += "Required: ${infoItems.joinToString(", ")}"
+        }
         if (urgent) {
             sections += "Priority: VERY URGENT"
         }
-        sections += "Notes: $notes"
+        if (notes.isNotBlank()) {
+            sections += "Notes: $notes"
+        }
         return sections.joinToString("\n\n")
     }
 

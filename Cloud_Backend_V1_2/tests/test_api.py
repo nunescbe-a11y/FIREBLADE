@@ -393,4 +393,54 @@ class DeviceApiTests(unittest.TestCase):
                 self.assertEqual(stored[0][2]['recording_id'], rec_uuid)
                 mock_urlopen.assert_called_once()
 
+    def test_call_details_upload_any_department(self):
+        import uuid
+        detail_uuid = str(uuid.uuid4())
+        
+        def mock_db_details(method, path, *args, **kwargs):
+            self.calls.append((method, path, args[0] if args else None))
+            if 'fireblade_device_credentials' in path:
+                return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}])
+            if 'fireblade_devices' in path:
+                return (200, [{'device_id':'MKT-001'}])
+            if 'fireblade_device_assignments' in path:
+                return (200, [{'employee_id':'EMP-TEST-001'}])
+            if 'phase0_calls' in path:
+                return (200, [{'id':123, 'employee_name':'Tester'}])
+            if 'fireblade_contacts' in path and method == 'GET':
+                return (200, [{'id':'c1111111-1111-1111-1111-111111111111'}])
+            if 'fireblade_call_enquiries' in path and method == 'GET':
+                return (200, [{'id':'e1111111-1111-1111-1111-111111111111'}])
+            if 'fireblade_information_types' in path:
+                return (200, [{'id':'t1', 'code':'QUOTATION'}, {'id':'t2', 'code':'CATALOGUE'}, {'id':'t3', 'code':'IMAGE'}])
+            if 'fireblade_shane_call_details' in path and method == 'GET':
+                return (200, [])
+            return (200, [])
+
+        with patch.object(index, '_supabase', side_effect=mock_db_details):
+            payload = {
+                "device_id": "MKT-001",
+                "detail_id": detail_uuid,
+                "source_call_id": "call-src-99",
+                "phone_number_raw": "9876543210",
+                "phone_number_normalized": "+919876543210",
+                "call_started_at_epoch_ms": 1788480000000,
+                "customer_name": "John Doe",
+                "product_asked": "Digital pH Meter",
+                "location": "Chennai",
+                "notes": "Urgent enquiry",
+                "quotation": True,
+                "catalogue": False,
+                "image": True,
+                "very_urgent": True,
+                "updated_at_epoch_ms": 1788480001000
+            }
+            r = self.client.post('/api/v3/shane/call-details', json=payload, headers=HEADERS)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json(), {"ok": True, "detail_id": detail_uuid})
+
+            # Also verify /api/v3/call-details alias
+            r2 = self.client.post('/api/v3/call-details', json=payload, headers=HEADERS)
+            self.assertEqual(r2.status_code, 200, r2.text)
+
 if __name__=='__main__':unittest.main()

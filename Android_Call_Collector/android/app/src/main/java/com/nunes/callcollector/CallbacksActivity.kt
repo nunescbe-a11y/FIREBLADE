@@ -71,7 +71,9 @@ class CallbacksActivity : AppCompatActivity() {
         refreshJob = lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 val dao = AppDatabase.get(this@CallbacksActivity).callDao()
-                val local = CallbackEngine.computeForDay(dao.latest(10_000), day)
+                val dayStart = FirebladeDatePolicy.startOfDay(day)
+                val dayEnd = System.currentTimeMillis().coerceAtLeast(FirebladeDatePolicy.nextDayStart(dayStart))
+                val local = CallbackEngine.computeForDay(dao.forDateRange(dayStart, dayEnd), day)
                 if (config.deviceToken.isNotBlank() && config.apiUrl.startsWith("https://")) {
                     try {
                         Triple(EmployeeWorkspaceApi.load(config, day).summary, Source.SERVER, "")
