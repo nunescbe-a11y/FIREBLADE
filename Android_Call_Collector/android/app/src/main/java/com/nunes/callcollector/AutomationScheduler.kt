@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit
 
 object AutomationScheduler {
     private const val RECONCILE_WORK = "nunes-call-reconciliation"
-    private const val SYNC_WORK = "nunes-cloud-sync"
+    private const val SYNC_WORK_PREFIX = "nunes-cloud-sync-v2"
+    private const val PERIODIC_SYNC_WORK = "nunes-cloud-sync-periodic-v2"
     private const val HEALTH_PULSE_WORK = "nunes-device-health-pulse"
 
     fun schedulePeriodicReconciliation(context: Context) {
@@ -49,9 +50,27 @@ object AutomationScheduler {
                     .build()
             )
             .build()
+        // Do not let an old retry/backoff instance head-of-line block all future sync attempts.
+        // A minute bucket deduplicates bursts while allowing a fresh worker on later capture/network events.
+        val bucket = System.currentTimeMillis() / TimeUnit.MINUTES.toMillis(1)
         WorkManager.getInstance(context).enqueueUniqueWork(
-            SYNC_WORK,
+            "$SYNC_WORK_PREFIX-$bucket",
             ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    fun schedulePeriodicSync(context: Context) {
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            PERIODIC_SYNC_WORK,
+            ExistingPeriodicWorkPolicy.KEEP,
             request
         )
     }
