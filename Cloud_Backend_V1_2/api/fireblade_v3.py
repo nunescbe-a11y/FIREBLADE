@@ -207,17 +207,29 @@ def install_routes(app, db, health_model):
             for row in (active_departments or [])
             if str(row.get("name", "")).strip().upper() == "MARKETING" and row.get("id")
         }
-        if not marketing_department_ids:
-            return {"department": "MARKETING", "employees": []}
+        service_department_ids = {
+            str(row.get("id"))
+            for row in (active_departments or [])
+            if str(row.get("name", "")).strip().upper() == "SERVICE" and row.get("id")
+        }
+        # Shane may also route enquiries to Alagupriya in SERVICE.
+        # Keep this explicit so we do not expose every SERVICE employee.
+        special_service_recipient_ids = {"EMP-008"}
 
-        _, marketing_employees = db(
+        _, recipient_employees = db(
             "GET",
             "fireblade_employees?select=employee_id,employee_name,department_id"
             "&active=eq.true&order=employee_name.asc"
         )
-        marketing_employees = [
-            row for row in (marketing_employees or [])
-            if str(row.get("department_id")) in marketing_department_ids
+        recipient_employees = [
+            row for row in (recipient_employees or [])
+            if (
+                str(row.get("department_id")) in marketing_department_ids
+                or (
+                    str(row.get("employee_id") or "").strip() in special_service_recipient_ids
+                    and str(row.get("department_id")) in service_department_ids
+                )
+            )
         ]
 
         _, active_assignments = db(
@@ -244,10 +256,10 @@ def install_routes(app, db, health_model):
                 assignments_by_employee.setdefault(assigned_employee_id, []).append(row)
 
         recipients = []
-        for employee in marketing_employees:
-            marketing_employee_id = str(employee.get("employee_id") or "").strip()
+        for employee in recipient_employees:
+            recipient_employee_id = str(employee.get("employee_id") or "").strip()
             phone_number = ""
-            employee_assignments = assignments_by_employee.get(marketing_employee_id, [])
+            employee_assignments = assignments_by_employee.get(recipient_employee_id, [])
 
             for row in employee_assignments:
                 candidate = str(row.get("company_phone_number") or "").strip()
@@ -264,7 +276,7 @@ def install_routes(app, db, health_model):
                         break
 
             recipients.append({
-                "employee_id": marketing_employee_id,
+                "employee_id": recipient_employee_id,
                 "employee_name": str(employee.get("employee_name") or "").strip(),
                 "phone_number": phone_number,
                 "available": bool(phone_number)
