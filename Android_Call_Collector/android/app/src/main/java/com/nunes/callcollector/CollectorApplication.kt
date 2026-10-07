@@ -40,6 +40,8 @@ class CollectorApplication : Application() {
         } catch (_: Exception) { }
 
         AutomationScheduler.schedulePeriodicReconciliation(this)
+        AutomationScheduler.schedulePeriodicSync(this)
+        AutomationScheduler.enqueueSync(this)
         AutomationScheduler.scheduleNextHealthPulse(this)
 
         try {
