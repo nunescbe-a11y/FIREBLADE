@@ -20,6 +20,9 @@ type ReportRow = {
   call_at: string;
   employee_id: string;
   employee_name: string;
+  device_id: string;
+  source_kind: string;
+  very_urgent: boolean | null;
   customer_name: string;
   customer_company: string;
   customer_phone: string;
@@ -63,6 +66,9 @@ function reportRecord(row: ReportRow, types: InformationTypeRow[]) {
   const record: Record<string, string | number> = {
     "Employee Name": row.employee_name || "",
     "Employee ID": row.employee_id || "",
+    "Device ID": row.device_id || "",
+    "Saved Source": row.source_kind === "SAVED_PHONE_DETAILS" ? "Phone details" : "Enquiry",
+    "Very Urgent": row.very_urgent === true ? "Yes" : row.very_urgent === false ? "No" : "Not recorded",
     "Customer Name": row.customer_name || "",
     "Customer Company": row.customer_company || "",
     "Customer Phone": row.customer_phone || "",
@@ -100,7 +106,7 @@ export async function GET(request: Request) {
 
   try {
     const [rowsRaw, types] = await Promise.all([
-      supabaseRest<ReportRow[]>("rpc/fireblade_information_sent_report", {
+      supabaseRest<ReportRow[]>("rpc/fireblade_information_sent_report_v2", {
         method: "POST",
         body: JSON.stringify({ p_start_date: from, p_end_date: to }),
       }),
@@ -122,6 +128,9 @@ export async function GET(request: Request) {
       call_at: new Date().toISOString(),
       employee_id: "",
       employee_name: "",
+      device_id: "",
+      source_kind: "ENQUIRY",
+      very_urgent: null,
       customer_name: "",
       customer_company: "",
       customer_phone: "",
