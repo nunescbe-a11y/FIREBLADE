@@ -339,6 +339,41 @@
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
+        <!-- Very Urgent is visible only on the authorized MKT-019 device. -->
+        <LinearLayout
+            android:id="@+id/priorityCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_shane_priority"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="@font/source_serif_4"
+                android:text="Very Urgent"
+                android:textColor="#171717"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <CheckBox
+                android:id="@+id/cbVeryUrgent"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:buttonTint="#B43A3A"
+                android:contentDescription="Very Urgent"
+                android:gravity="center"
+                android:padding="8dp" />
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/marketingRecipientSection"
             android:layout_width="match_parent"
