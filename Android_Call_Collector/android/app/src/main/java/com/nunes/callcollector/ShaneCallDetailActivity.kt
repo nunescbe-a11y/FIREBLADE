@@ -67,6 +67,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         b.rowImage.setOnClickListener { b.cbImage.isChecked = !b.cbImage.isChecked }
 
         val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
+        b.priorityCard.visibility = if (isShaneRecipientDevice) android.view.View.VISIBLE else android.view.View.GONE
         if (!isShaneRecipientDevice) {
             b.marketingRecipientSection.visibility = android.view.View.GONE
             b.tvMarketingSelectedCount.visibility = android.view.View.GONE
@@ -124,7 +125,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             b.cbQuotation.isChecked = current?.quotation == true || legQuotation
             b.cbCatalogue.isChecked = current?.catalogue == true || legCatalogue
             b.cbImage.isChecked = current?.image == true || legImage
-
+            b.cbVeryUrgent.isChecked = isShaneRecipientDevice && current?.veryUrgent == true
         }
     }
 
@@ -348,6 +349,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val image = b.cbImage.isChecked
 
         val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
+        val urgent = isShaneRecipientDevice && b.cbVeryUrgent.isChecked
         val selectedRecipients = if (isShaneRecipientDevice) {
             marketingRecipients.filter {
                 it.available &&
@@ -374,7 +376,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         quotation = quotation,
                         catalogue = catalogue,
                         image = image,
-                        veryUrgent = false,
+                        veryUrgent = urgent,
                         synced = false,
                         syncState = "PENDING",
                         syncError = null,
@@ -394,7 +396,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         quotation = quotation,
                         catalogue = catalogue,
                         image = image,
-                        // Preserve any historical urgency value on edited records.
+                        // Do not erase historical urgency from other devices while hiding its control.
+                        veryUrgent = if (isShaneRecipientDevice) urgent else previous.veryUrgent,
                         synced = false,
                         syncState = "PENDING",
                         syncError = null,
@@ -441,6 +444,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 quotation = quotation,
                 catalogue = catalogue,
                 image = image,
+                veryUrgent = urgent,
                 callStartedAtEpochMs = call.startedAtEpochMs
             )
 
@@ -461,6 +465,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         quotation: Boolean,
         catalogue: Boolean,
         image: Boolean,
+        veryUrgent: Boolean,
         callStartedAtEpochMs: Long
     ): String {
         val systemZone = ZoneId.systemDefault()
@@ -480,6 +485,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             "Location: $location",
             "Date & Time: $sentDate • $sentTime"
         )
+        if (veryUrgent) sections += "Priority: VERY URGENT"
         val infoItems = mutableListOf<String>()
         if (quotation) infoItems += "Quotation"
         if (catalogue) infoItems += "Catalogue"
