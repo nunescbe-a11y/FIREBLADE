@@ -16,8 +16,14 @@ import com.nunes.callcollector.control.ShaneMarketingApi
 import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.data.CallEntity
 import com.nunes.callcollector.data.ShaneCallDetailEntity
+import com.nunes.callcollector.data.ShaneAssignmentEventEntity
+import androidx.room.withTransaction
+import org.json.JSONArray
+import org.json.JSONObject
 import com.nunes.callcollector.databinding.ActivityShaneCallDetailBinding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -29,6 +35,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     private lateinit var b: ActivityShaneCallDetailBinding
     private val db by lazy { AppDatabase.get(this) }
     private val config by lazy { ConfigStore(this) }
+    private val assignmentWriter = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private data class CallTarget(
         val sourceCallId: String?,
@@ -48,6 +55,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     private var queuedWhatsAppPackage: String? = null
     private var nextQueuedRecipientIndex: Int = 0
     private var waitingForWhatsAppReturn: Boolean = false
+    private var queuedDetailId: String? = null
+    private var queuedFormSnapshot: String = "{}"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,6 +77,11 @@ class ShaneCallDetailActivity : AppCompatActivity() {
 
         val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
         b.priorityCard.visibility = if (isShaneRecipientDevice) android.view.View.VISIBLE else android.view.View.GONE
+        if (isShaneRecipientDevice) {
+            b.rowQuotation.visibility = android.view.View.GONE
+            b.rowCatalogue.visibility = android.view.View.GONE
+            b.rowImage.visibility = android.view.View.GONE
+        }
         if (!isShaneRecipientDevice) {
             b.marketingRecipientSection.visibility = android.view.View.GONE
             b.tvMarketingSelectedCount.visibility = android.view.View.GONE
@@ -163,20 +177,28 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     }
 
     private fun loadMarketingRecipients() {
+        val cached = ShaneMarketingApi.getCachedRecipients(this)
+        if (cached.isNotEmpty()) {
+            marketingRecipients = cached
+            renderMarketingRecipients()
+        }
+
         lifecycleScope.launch {
             try {
                 val recipients = withContext(Dispatchers.IO) {
-                    ShaneMarketingApi.load(config)
+                    ShaneMarketingApi.load(this@ShaneCallDetailActivity, config)
                 }
                 marketingRecipients = recipients
                 renderMarketingRecipients()
             } catch (_: Exception) {
-                marketingRecipients = emptyList()
-                selectedMarketingEmployeeIds.clear()
-                b.marketingEmployeeList.removeAllViews()
-                b.tvMarketingStatus.text =
-                    "Marketing employee list is temporarily unavailable. You can still save and open WhatsApp manually."
-                updateMarketingSelectionUi()
+                if (marketingRecipients.isEmpty()) {
+                    marketingRecipients = emptyList()
+                    selectedMarketingEmployeeIds.clear()
+                    b.marketingEmployeeList.removeAllViews()
+                    b.tvMarketingStatus.text =
+                        "Marketing employee list is temporarily unavailable. You can still save and open WhatsApp manually."
+                    updateMarketingSelectionUi()
+                }
             }
         }
     }
@@ -344,11 +366,10 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val productAsked = b.etProductAsked.text?.toString().orEmpty().trim()
         val location = b.etLocation.text?.toString().orEmpty().trim()
         val notes = b.etNotes.text?.toString().orEmpty().trim()
-        val quotation = b.cbQuotation.isChecked
-        val catalogue = b.cbCatalogue.isChecked
-        val image = b.cbImage.isChecked
-
         val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
+        val quotation = !isShaneRecipientDevice && b.cbQuotation.isChecked
+        val catalogue = !isShaneRecipientDevice && b.cbCatalogue.isChecked
+        val image = !isShaneRecipientDevice && b.cbImage.isChecked
         val urgent = isShaneRecipientDevice && b.cbVeryUrgent.isChecked
         val selectedRecipients = if (isShaneRecipientDevice) {
             marketingRecipients.filter {
@@ -405,19 +426,37 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                     )
                 }
 
-                if (previous == null) {
-                    val id = db.shaneCallDetailDao().insert(row)
-                    if (id <= 0L) {
-                        db.shaneCallDetailDao().nearestForCall(
-                            call.phoneNormalized,
-                            call.startedAtEpochMs - 90_000L,
-                            call.startedAtEpochMs + 90_000L,
-                            call.startedAtEpochMs
-                        ) ?: row
-                    } else row.copy(localId = id)
-                } else {
-                    db.shaneCallDetailDao().update(row)
-                    row
+                // Save the form and ALL employee selections atomically on-device.
+                // The events survive loss of signal and will retry with stable UUIDs.
+                db.withTransaction {
+                    val savedRow = if (previous == null) {
+                        val id = db.shaneCallDetailDao().insert(row)
+                        if (id <= 0L) {
+                            db.shaneCallDetailDao().nearestForCall(
+                                call.phoneNormalized,
+                                call.startedAtEpochMs - 90_000L,
+                                call.startedAtEpochMs + 90_000L,
+                                call.startedAtEpochMs
+                            ) ?: row
+                        } else row.copy(localId = id)
+                    } else {
+                        db.shaneCallDetailDao().update(row)
+                        row
+                    }
+                    if (isShaneRecipientDevice) {
+                        val snapshot = shaneSnapshot(savedRow, selectedRecipients).toString()
+                        selectedRecipients.forEach { employee ->
+                            db.shaneAssignmentEventDao().insert(ShaneAssignmentEventEntity(
+                                detailId = savedRow.detailId,
+                                assignedToEmployeeId = employee.employeeId,
+                                eventType = "ASSIGNED",
+                                occurredAtEpochMs = now,
+                                whatsappRecipientNumber = employee.phoneNumber,
+                                formSnapshotJson = snapshot
+                            ))
+                        }
+                    }
+                    savedRow
                 }
             }
 
@@ -451,8 +490,44 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             if (selectedRecipients.isEmpty()) {
                 openWhatsApp(message)
             } else {
-                startRecipientQueue(message, selectedRecipients)
+                startRecipientQueue(message, selectedRecipients, saved)
             }
+        }
+    }
+
+    private fun shaneSnapshot(
+        row: ShaneCallDetailEntity,
+        recipients: List<MarketingRecipient>
+    ): JSONObject = JSONObject().apply {
+        put("detail_id", row.detailId)
+        put("source_call_id", row.sourceCallId ?: JSONObject.NULL)
+        put("phone_number_raw", row.phoneNumberRaw)
+        put("phone_number_normalized", row.phoneNumberNormalized)
+        put("call_started_at_epoch_ms", row.callStartedAtEpochMs)
+        put("customer_name", row.customerName)
+        put("product_asked", row.productAsked)
+        put("location", row.location)
+        put("notes", row.notes)
+        put("very_urgent", row.veryUrgent)
+        put("client_updated_at_epoch_ms", row.updatedAtEpochMs)
+        put("selected_employee_ids", JSONArray(recipients.map { it.employeeId }))
+    }
+
+    private fun rememberWhatsAppHandoff(recipient: MarketingRecipient) {
+        val detailId = queuedDetailId ?: return
+        val snapshot = queuedFormSnapshot
+        val appContext = applicationContext
+        // Runs on the database dispatcher, not on the WhatsApp UI thread.
+        assignmentWriter.launch {
+            db.shaneAssignmentEventDao().insert(ShaneAssignmentEventEntity(
+                detailId = detailId,
+                assignedToEmployeeId = recipient.employeeId,
+                eventType = "WHATSAPP_HANDOFF_OPENED",
+                occurredAtEpochMs = System.currentTimeMillis(),
+                whatsappRecipientNumber = recipient.phoneNumber,
+                formSnapshotJson = snapshot
+            ))
+            AutomationScheduler.enqueueSync(appContext)
         }
     }
 
@@ -501,8 +576,11 @@ class ShaneCallDetailActivity : AppCompatActivity() {
 
     private fun startRecipientQueue(
         message: String,
-        recipients: List<MarketingRecipient>
+        recipients: List<MarketingRecipient>,
+        saved: ShaneCallDetailEntity
     ) {
+        queuedDetailId = saved.detailId
+        queuedFormSnapshot = shaneSnapshot(saved, recipients).toString()
         queuedRecipients = recipients
         queuedMessage = message
         nextQueuedRecipientIndex = 0
@@ -536,6 +614,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val total = queuedRecipients.size
 
         if (launchDirectWhatsApp(queuedMessage, recipient.phoneNumber, packageName)) {
+            rememberWhatsAppHandoff(recipient)
             nextQueuedRecipientIndex += 1
             waitingForWhatsAppReturn = true
             Toast.makeText(
@@ -603,6 +682,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
 
     private fun clearRecipientQueue() {
         queuedRecipients = emptyList()
+        queuedDetailId = null
+        queuedFormSnapshot = "{}"
         queuedMessage = ""
         queuedWhatsAppPackage = null
         nextQueuedRecipientIndex = 0

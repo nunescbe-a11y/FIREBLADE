@@ -6,7 +6,8 @@ import org.json.JSONObject
 object ShaneMode {
     fun isShaneRecipientDevice(context: Context): Boolean {
         val config = ConfigStore(context)
-        return config.deviceId.trim().equals("MKT-019", ignoreCase = true)
+        val deviceId = config.deviceId.trim()
+        return deviceId.equals("MKT-019", ignoreCase = true) || deviceId.equals("MKT-001", ignoreCase = true)
     }
 
     fun isEnabled(context: Context): Boolean {

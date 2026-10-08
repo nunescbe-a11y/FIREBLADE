@@ -443,4 +443,46 @@ class DeviceApiTests(unittest.TestCase):
             r2 = self.client.post('/api/v3/call-details', json=payload, headers=HEADERS)
             self.assertEqual(r2.status_code, 200, r2.text)
 
+    def test_shane_assignment_events_and_recipients_mkt001(self):
+        import uuid
+        detail_uuid = str(uuid.uuid4())
+        event_uuid = str(uuid.uuid4())
+
+        def mock_db(method, path, *args, **kwargs):
+            if 'fireblade_device_credentials' in path:
+                return (200, [{'device_id':'MKT-001','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}])
+            if 'fireblade_devices' in path:
+                return (200, [{'device_id':'MKT-001'}])
+            if 'fireblade_device_assignments' in path:
+                return (200, [{'employee_id':'EMP-017'}])
+            if 'fireblade_employees' in path:
+                if 'EMP-017' in path:
+                    return (200, [{'employee_id':'EMP-017','department_id':'dept-shane','active':True}])
+                return (200, [{'employee_id':'EMP-MKT-1','department_id':'dept-mkt','active':True}])
+            if 'fireblade_departments' in path:
+                if 'dept-shane' in path:
+                    return (200, [{'name':'SHANE','active':True}])
+                return (200, [{'name':'MARKETING','active':True}])
+            if 'fireblade_shane_call_details' in path:
+                return (200, [{'detail_id':detail_uuid,'device_id':'MKT-001','employee_id':'EMP-017'}])
+            return (200, [])
+
+        with patch.object(index, '_supabase', side_effect=mock_db):
+            rec_r = self.client.get('/api/v3/devices/MKT-001/shane/marketing-recipients', headers=HEADERS)
+            self.assertEqual(rec_r.status_code, 200, rec_r.text)
+
+            payload = {
+                "device_id": "MKT-001",
+                "event_id": event_uuid,
+                "detail_id": detail_uuid,
+                "assigned_to_employee_id": "EMP-MKT-1",
+                "event_type": "ASSIGNED",
+                "occurred_at_epoch_ms": 1788480000000,
+                "whatsapp_recipient_number": "+919876543210",
+                "form_snapshot": {"customer_name": "Test Customer"}
+            }
+            evt_r = self.client.post('/api/v3/shane/assignment-events', json=payload, headers=HEADERS)
+            self.assertEqual(evt_r.status_code, 200, evt_r.text)
+            self.assertEqual(evt_r.json(), {"ok": True, "event_id": event_uuid})
+
 if __name__=='__main__':unittest.main()

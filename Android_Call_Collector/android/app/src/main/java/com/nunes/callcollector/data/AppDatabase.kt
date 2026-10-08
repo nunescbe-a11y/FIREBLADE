@@ -8,14 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [CallEntity::class, RecordingEntity::class, ShaneCallDetailEntity::class],
-    version = 6,
+    entities = [CallEntity::class, RecordingEntity::class, ShaneCallDetailEntity::class, ShaneAssignmentEventEntity::class],
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun callDao(): CallDao
     abstract fun recordingDao(): RecordingDao
     abstract fun shaneCallDetailDao(): ShaneCallDetailDao
+    abstract fun shaneAssignmentEventDao(): ShaneAssignmentEventDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -107,13 +108,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `shane_assignment_events` (" +
+                    "`eventId` TEXT NOT NULL PRIMARY KEY, " +
+                    "`detailId` TEXT NOT NULL, " +
+                    "`assignedToEmployeeId` TEXT NOT NULL, " +
+                    "`eventType` TEXT NOT NULL, " +
+                    "`occurredAtEpochMs` INTEGER NOT NULL, " +
+                    "`whatsappRecipientNumber` TEXT NOT NULL, " +
+                    "`formSnapshotJson` TEXT NOT NULL, " +
+                    "`synced` INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shane_assignment_events_detailId` ON `shane_assignment_events` (`detailId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shane_assignment_events_synced_occurredAtEpochMs` ON `shane_assignment_events` (`synced`, `occurredAtEpochMs`)")
+            }
+        }
+
         fun get(context: Context): AppDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "nunes_calls.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
                 .also { INSTANCE = it }
         }

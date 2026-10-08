@@ -159,6 +159,52 @@ object ApiClient {
         }
     }
 
+    /** Upload an immutable customer-assignment or WhatsApp-open event.
+     * The server authenticates the enrolled Shane device; no Supabase key in the APK.
+     * Reusing eventId on retries makes this operation idempotent.
+     */
+    fun uploadShaneAssignment(
+        config: ConfigStore,
+        event: com.nunes.callcollector.data.ShaneAssignmentEventEntity
+    ): ShaneSyncResult {
+        if (config.apiUrl.isBlank() || !config.apiUrl.startsWith("https://")) {
+            return ShaneSyncResult(false, 0, false, "Fireblade API must use HTTPS")
+        }
+        if (config.deviceToken.isBlank()) return ShaneSyncResult(false, 0, false, "Not enrolled")
+        val payload = JSONObject().apply {
+            put("device_id", config.deviceId)
+            put("event_id", event.eventId)
+            put("detail_id", event.detailId)
+            put("assigned_to_employee_id", event.assignedToEmployeeId)
+            put("event_type", event.eventType)
+            put("occurred_at_epoch_ms", event.occurredAtEpochMs)
+            put("whatsapp_recipient_number", event.whatsappRecipientNumber)
+            put("form_snapshot", JSONObject(event.formSnapshotJson))
+        }
+        val conn = (URL(config.apiUrl + "/api/v3/shane/assignment-events").openConnection()
+            as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10000
+            readTimeout = 15000
+            instanceFollowRedirects = false
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-Fireblade-Token", config.deviceToken)
+        }
+        return try {
+            conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val status = conn.responseCode
+            val message = (if (status in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status in 200..299) ShaneSyncResult(true, status, false, "Assignment synced")
+            else ShaneSyncResult(false, status, false, "HTTP $status: ${message.take(250)}")
+        } catch (e: Exception) {
+            ShaneSyncResult(false, 0, false, e.message ?: e.javaClass.simpleName)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun uploadRecording(config: ConfigStore, recording: com.nunes.callcollector.data.RecordingEntity): SyncResult {
         if (config.apiUrl.isBlank()) return SyncResult(false, emptySet(), "API URL is empty")
         if (!config.apiUrl.startsWith("https://")) return SyncResult(false, emptySet(), "Fireblade API must use HTTPS")

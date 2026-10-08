@@ -96,6 +96,17 @@ class ShaneCallDetail(BaseModel):
     updated_at_epoch_ms: int = Field(gt=0)
 
 
+class ShaneAssignmentEvent(BaseModel):
+    device_id: str = Field(min_length=1, max_length=100)
+    event_id: str = Field(min_length=36, max_length=36)
+    detail_id: str = Field(min_length=36, max_length=36)
+    assigned_to_employee_id: str = Field(min_length=1, max_length=100)
+    event_type: Literal["ASSIGNED", "REASSIGNED", "WHATSAPP_HANDOFF_OPENED"]
+    occurred_at_epoch_ms: int = Field(gt=0)
+    whatsapp_recipient_number: str = Field(default="", max_length=64)
+    form_snapshot: dict = Field(default_factory=dict)
+
+
 def install_routes(app, db, health_model):
     @app.post("/api/v3/enroll")
     def enroll(body: Enrollment):
@@ -169,8 +180,8 @@ def install_routes(app, db, health_model):
         device_id = device_id.strip().upper()
         authorize(db, device_id, x_fireblade_token)
 
-        if device_id != "MKT-019":
-            raise HTTPException(403, "Marketing recipient workflow is restricted to authorized device MKT-019")
+        if device_id not in ("MKT-019", "MKT-001"):
+            raise HTTPException(403, "Marketing recipient workflow is restricted to authorized devices MKT-019 and MKT-001")
 
         _, assignments = db(
             "GET",
@@ -493,7 +504,8 @@ def install_routes(app, db, health_model):
                         if created_e and len(created_e) > 0:
                             enquiry_id = created_e[0].get("id")
 
-                    if enquiry_id:
+                    if enquiry_id and device_id not in ("MKT-019", "MKT-001"):
+                        # Shane did not answer information-sent checkboxes on this page.
                         _, info_types = db("GET", "fireblade_information_types?select=id,code&active=eq.true")
                         if info_types:
                             type_map = {t["code"].upper(): t["id"] for t in info_types if "code" in t and "id" in t}
@@ -532,7 +544,7 @@ def install_routes(app, db, health_model):
             row = existing[0]
             if row.get("device_id") != device_id:
                 raise HTTPException(409, "Duplicate detail ID with different device")
-            if int(row.get("client_updated_at_epoch_ms") or 0) > body.updated_at_epoch_ms:
+            if int(row.get("client_updated_at_epoch_ms") or 0) >= body.updated_at_epoch_ms:
                 return {"ok": True, "detail_id": detail_id, "stale_ignored": True}
 
         record = {
@@ -566,6 +578,78 @@ def install_routes(app, db, health_model):
             db("POST", "fireblade_shane_call_details", record)
 
         return {"ok": True, "detail_id": detail_id, "report_sync_status": report_sync_status}
+
+    @app.post("/api/v3/shane/assignment-events")
+    def save_shane_assignment_event(
+        body: ShaneAssignmentEvent,
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        # Enrolled Shane device only: no service-role key is given to the APK.
+        import uuid
+        device_id = body.device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+        if device_id not in ("MKT-019", "MKT-001"):
+            raise HTTPException(403, "Only Shane's authorized device (or test device MKT-001) may record assignments")
+        try:
+            event_id = str(uuid.UUID(body.event_id))
+            detail_id = str(uuid.UUID(body.detail_id))
+        except (ValueError, AttributeError):
+            raise HTTPException(400, "Invalid event or detail identifier")
+
+        _, saved = db("GET", "fireblade_shane_call_details?select=detail_id,device_id,employee_id"
+                      "&detail_id=eq." + quote(detail_id, safe="") + "&limit=1")
+        if not saved or saved[0].get("device_id") != device_id:
+            raise HTTPException(404, "Shane detail not saved for this device")
+
+        action_iso = datetime.fromtimestamp(
+            body.occurred_at_epoch_ms / 1000.0, tz=timezone.utc
+        ).isoformat()
+        _, device_assignments = db("GET", "fireblade_device_assignments?select=employee_id"
+                                  "&device_id=eq." + quote(device_id, safe="") +
+                                  "&assigned_from=lte." + quote(action_iso, safe="") +
+                                  "&or=(assigned_until.is.null,assigned_until.gte." +
+                                  quote(action_iso, safe="") + ")&limit=2")
+        if len(device_assignments or []) != 1 or device_assignments[0].get("employee_id") != saved[0].get("employee_id"):
+            raise HTTPException(403, "Shane employee assignment is no longer active")
+        _, shane_employee = db("GET", "fireblade_employees?select=department_id,active"
+                               "&employee_id=eq." + quote(saved[0]["employee_id"], safe="") + "&limit=1")
+        if not shane_employee or not shane_employee[0].get("active"):
+            raise HTTPException(403, "Shane employee is not active")
+        _, dept = db("GET", "fireblade_departments?select=name,active&id=eq." +
+                     quote(str(shane_employee[0].get("department_id") or ""), safe="") + "&limit=1")
+        if not dept or not dept[0].get("active") or str(dept[0].get("name") or "").strip().upper() != "SHANE":
+            raise HTTPException(403, "Employee is not authorized for Shane assignments")
+
+        recipient_id = body.assigned_to_employee_id.strip()
+        _, recipients = db("GET", "fireblade_employees?select=department_id,active"
+                           "&employee_id=eq." + quote(recipient_id, safe="") + "&limit=1")
+        if not recipients or not recipients[0].get("active"):
+            raise HTTPException(400, "Selected employee is not active")
+        _, recipient_dept = db("GET", "fireblade_departments?select=name,active&id=eq." +
+                               quote(str(recipients[0].get("department_id") or ""), safe="") + "&limit=1")
+        recipient_department = (str(recipient_dept[0].get("name") or "").strip().upper()
+                                if recipient_dept and recipient_dept[0].get("active") else "")
+        if recipient_department != "MARKETING" and not (recipient_id == "EMP-008" and recipient_department == "SERVICE"):
+            raise HTTPException(400, "Employee is not permitted as a Shane recipient")
+        if len(str(body.form_snapshot)) > 20000:
+            raise HTTPException(400, "Form snapshot is too large")
+        # User action timestamp, not backend receive timestamp. Historic events
+        # may be synced later; reject only times implausibly in the future.
+        if body.occurred_at_epoch_ms > int(utcnow().timestamp() * 1000) + 300000:
+            raise HTTPException(400, "Assignment timestamp is in the future")
+        record = {
+            "event_id": event_id,
+            "detail_id": detail_id,
+            "assigned_to_employee_id": recipient_id,
+            "event_type": body.event_type,
+            "occurred_at_epoch_ms": body.occurred_at_epoch_ms,
+            "whatsapp_recipient_number": body.whatsapp_recipient_number.strip() or None,
+            "form_snapshot": body.form_snapshot,
+        }
+        # Idempotent offline sync: the event_id is reused on every retry.
+        db("POST", "fireblade_shane_assignment_events?on_conflict=event_id",
+           record, "resolution=ignore-duplicates,return=minimal")
+        return {"ok": True, "event_id": event_id}
 
     @app.post("/api/v3/recordings")
     def upload_recording(

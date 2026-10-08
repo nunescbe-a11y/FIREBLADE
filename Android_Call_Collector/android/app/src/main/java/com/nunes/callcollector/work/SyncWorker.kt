@@ -77,6 +77,23 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 }
             }
 
+            // Events are uploaded only after their parent detail is confirmed in Supabase.
+            // A failed event remains in Room and is retried with the same event UUID.
+            val assignmentDao = AppDatabase.get(applicationContext).shaneAssignmentEventDao()
+            var assignmentSyncFailed = false
+            var assignmentSyncMessage = ""
+            for (event in assignmentDao.pendingReady(50)) {
+                state.set("SYNCING", "Uploading Shane employee assignments...")
+                val upload = ApiClient.uploadShaneAssignment(config, event)
+                if (upload.ok) {
+                    assignmentDao.markSynced(event.eventId)
+                } else {
+                    assignmentSyncFailed = true
+                    assignmentSyncMessage = upload.message
+                    break
+                }
+            }
+
             // Upload recordings (runs whether calls were pending or not)
             val recordingDao = AppDatabase.get(applicationContext).recordingDao()
             val pendingRecordings = recordingDao.pending(20)
@@ -97,6 +114,12 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 }
             }
 
+            if (assignmentSyncFailed) {
+                state.set("RETRYING", assignmentSyncMessage.ifBlank { "Shane assignments will retry." })
+                CallbackRefreshWorker.enqueue(applicationContext)
+                return@withContext Result.retry()
+            }
+
             if (shaneSyncFailed) {
                 state.set("RETRYING", shaneSyncMessage.ifBlank { "Shane detail sync will retry." })
                 CallbackRefreshWorker.enqueue(applicationContext)
@@ -106,6 +129,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             if (
                 dao.pendingCount() > 0 ||
                 shaneDao.pendingCount() > 0 ||
+                assignmentDao.pendingCount() > 0 ||
                 pendingRecordings.size > recordingsUploaded
             ) {
                 state.set("QUEUED", "More records remain; another automatic sync will continue.")
