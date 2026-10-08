@@ -387,8 +387,8 @@ class HistoryActivity : AppCompatActivity() {
                 visibility = if (detailText.isBlank()) View.GONE else View.VISIBLE
             }
 
-            view.findViewById<TextView>(R.id.tvHistoryUrgent).visibility =
-                if (detail?.veryUrgent == true) View.VISIBLE else View.GONE
+            // Deprecated priority flag is retained in storage but not displayed.
+            view.findViewById<TextView>(R.id.tvHistoryUrgent).visibility = View.GONE
 
             view.setOnClickListener {
                 val source = call.sourceCallId.takeUnless { it.startsWith("LIVE:") }
