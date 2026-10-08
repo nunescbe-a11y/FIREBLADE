@@ -422,6 +422,14 @@ def install_routes(app, db, health_model):
             if calls:
                 call_id = calls[0]["id"]
 
+        # Old 1.7.16 phones do not supply the three material checkbox fields.
+        # Do not convert an absent checkbox to "No" in the management report.
+        submitted_materials = {
+            key: getattr(body, key)
+            for key in ("quotation", "catalogue", "image")
+            if key in body.model_fields_set
+        }
+        report_sync_status = "NO_MATCHING_CALL" if not call_id else "SYNCED"
         # Structured enquiry sync to contacts, enquiries, and information sent
         if call_id:
             try:
@@ -490,9 +498,16 @@ def install_routes(app, db, health_model):
                         if info_types:
                             type_map = {t["code"].upper(): t["id"] for t in info_types if "code" in t and "id" in t}
                             bool_map = {
-                                "QUOTATION": bool(body.quotation),
-                                "CATALOGUE": bool(body.catalogue),
-                                "IMAGE": bool(body.image)
+                                "QUOTATION": submitted_materials["quotation"],
+                                "CATALOGUE": submitted_materials["catalogue"],
+                                "IMAGE": submitted_materials["image"],
+                            } if len(submitted_materials) == 3 else {
+                                code: submitted_materials[key]
+                                for code, key in (
+                                    ("QUOTATION", "quotation"),
+                                    ("CATALOGUE", "catalogue"),
+                                    ("IMAGE", "image"),
+                                ) if key in submitted_materials
                             }
                             for code, is_sent in bool_map.items():
                                 if code in type_map:
@@ -504,8 +519,11 @@ def install_routes(app, db, health_model):
                                         "answered_by": employee_id,
                                         "updated_at": utcnow().isoformat()
                                     }, "resolution=merge-duplicates,return=minimal")
-            except Exception:
-                pass
+            except Exception as exc:
+                # Primary phone details are still durable and visible via the unified report.
+                # Never silently report that the normalized enquiry sync succeeded.
+                report_sync_status = "PHONE_DETAILS_ONLY"
+                print(f"Fireblade report sync issue for {device_id}: {type(exc).__name__}")
 
         _, existing = db(
             "GET",
@@ -539,6 +557,8 @@ def install_routes(app, db, health_model):
             "updated_at": utcnow().isoformat()
         }
 
+        record.update(submitted_materials)
+
         if existing:
             db(
                 "PATCH",
@@ -549,7 +569,7 @@ def install_routes(app, db, health_model):
             record["created_at"] = utcnow().isoformat()
             db("POST", "fireblade_shane_call_details", record)
 
-        return {"ok": True, "detail_id": detail_id}
+        return {"ok": True, "detail_id": detail_id, "report_sync_status": report_sync_status}
 
     @app.post("/api/v3/recordings")
     def upload_recording(
