@@ -27,6 +27,9 @@ type ReportRow = {
   call_at: string;
   employee_id: string;
   employee_name: string;
+  device_id: string;
+  source_kind: string;
+  very_urgent: boolean | null;
   customer_name: string;
   customer_company: string;
   customer_phone: string;
@@ -105,6 +108,8 @@ export default function InformationSentReportClient() {
       return [
         row.employee_name,
         row.employee_id,
+        row.device_id,
+        row.very_urgent === true ? "very urgent" : "",
         row.customer_name,
         row.customer_company,
         row.customer_phone,
@@ -128,7 +133,7 @@ export default function InformationSentReportClient() {
         <div>
           <p className="eyebrow">Admin & Management</p>
           <h1>Information Sent Report</h1>
-          <p>Review exactly what each employee sent to each customer after the call.</p>
+          <p>Review saved call details from employee phones, including Shane's enquiries. Material selections do not prove WhatsApp delivery.</p>
         </div>
         <div className="header-actions">
           <a className="secondary-button" href={exportUrl("csv")}>Export CSV</a>
@@ -168,23 +173,27 @@ export default function InformationSentReportClient() {
                 <th>Customer</th>
                 <th>Product</th>
                 <th>Location</th>
+                <th>Very Urgent</th>
+                <th>Device</th>
                 {types.map((type) => <th key={type.id}>{type.label} Sent</th>)}
                 <th>Call Date / Time</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5 + types.length} className="empty-state">Loading report...</td></tr>
+                <tr><td colSpan={7 + types.length} className="empty-state">Loading report...</td></tr>
               ) : visible.length === 0 ? (
-                <tr><td colSpan={5 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
+                <tr><td colSpan={7 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
               ) : visible.map((row) => {
                 const itemById = new Map((row.information_items || []).map((item) => [item.id, item]));
                 return (
                   <tr key={row.enquiry_id}>
-                    <td><strong>{row.employee_name || "Unassigned"}</strong><small>{row.employee_id}</small></td>
+                    <td><strong>{row.employee_name || "Unassigned"}</strong><small>{row.employee_id}</small>{row.source_kind === "SAVED_PHONE_DETAILS" && <small>Saved on phone</small>}</td>
                     <td><strong>{row.customer_name || "Customer"}</strong><small>{row.customer_company || row.customer_phone}</small>{row.customer_company && <small>{row.customer_phone}</small>}</td>
                     <td><strong>{row.product_name}</strong>{row.requirement_details && <small>{row.requirement_details}</small>}{row.notes && <small>Notes: {row.notes}</small>}</td>
                     <td><strong>{row.location || "—"}</strong></td>
+                    <td>{row.very_urgent === true ? <span className="status-pill warning">VERY URGENT</span> : row.very_urgent === false ? "No" : "—"}</td>
+                    <td><small>{row.device_id || "—"}</small></td>
                     {types.map((type) => {
                       const item = itemById.get(type.id);
                       return (
