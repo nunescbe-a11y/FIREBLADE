@@ -498,10 +498,6 @@ def install_routes(app, db, health_model):
                         if info_types:
                             type_map = {t["code"].upper(): t["id"] for t in info_types if "code" in t and "id" in t}
                             bool_map = {
-                                "QUOTATION": submitted_materials["quotation"],
-                                "CATALOGUE": submitted_materials["catalogue"],
-                                "IMAGE": submitted_materials["image"],
-                            } if len(submitted_materials) == 3 else {
                                 code: submitted_materials[key]
                                 for code, key in (
                                     ("QUOTATION", "quotation"),
