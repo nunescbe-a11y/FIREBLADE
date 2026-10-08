@@ -62,11 +62,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
 
         b.btnBack.setOnClickListener { finish() }
         b.btnSaveSend.setOnClickListener { saveAndSend() }
-        b.cbVeryUrgent.setOnCheckedChangeListener { _, checked ->
-            updatePriorityUi(checked)
-        }
-        updatePriorityUi(false)
-
         b.rowQuotation.setOnClickListener { b.cbQuotation.isChecked = !b.cbQuotation.isChecked }
         b.rowCatalogue.setOnClickListener { b.cbCatalogue.isChecked = !b.cbCatalogue.isChecked }
         b.rowImage.setOnClickListener { b.cbImage.isChecked = !b.cbImage.isChecked }
@@ -130,7 +125,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             b.cbCatalogue.isChecked = current?.catalogue == true || legCatalogue
             b.cbImage.isChecked = current?.image == true || legImage
 
-            b.cbVeryUrgent.isChecked = current?.veryUrgent == true
         }
     }
 
@@ -271,22 +265,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             .ifBlank { "M" }
     }
 
-    private fun updatePriorityUi(urgent: Boolean) {
-        b.priorityCard.setBackgroundResource(
-            if (urgent) R.drawable.bg_shane_priority_selected
-            else R.drawable.bg_shane_priority
-        )
-        b.tvPriorityLabel.setTextColor(
-            android.graphics.Color.parseColor(if (urgent) "#B43A3A" else "#171717")
-        )
-        b.tvPriorityHint.text =
-            if (urgent) "Marked VERY URGENT • immediate action required."
-            else "Mark only when immediate action is required."
-        b.tvPriorityHint.setTextColor(
-            android.graphics.Color.parseColor(if (urgent) "#9A3E3E" else "#7E7A73")
-        )
-    }
-
     private fun updateMarketingSelectionUi() {
         if (!ShaneMode.isShaneRecipientDevice(this)) {
             b.btnSaveSend.text = "Save Details"
@@ -368,7 +346,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val quotation = b.cbQuotation.isChecked
         val catalogue = b.cbCatalogue.isChecked
         val image = b.cbImage.isChecked
-        val urgent = b.cbVeryUrgent.isChecked
 
         val isShaneRecipientDevice = ShaneMode.isShaneRecipientDevice(this)
         val selectedRecipients = if (isShaneRecipientDevice) {
@@ -397,7 +374,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         quotation = quotation,
                         catalogue = catalogue,
                         image = image,
-                        veryUrgent = urgent,
+                        veryUrgent = false,
                         synced = false,
                         syncState = "PENDING",
                         syncError = null,
@@ -417,7 +394,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                         quotation = quotation,
                         catalogue = catalogue,
                         image = image,
-                        veryUrgent = urgent,
+                        // Preserve any historical urgency value on edited records.
                         synced = false,
                         syncState = "PENDING",
                         syncError = null,
@@ -464,7 +441,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 quotation = quotation,
                 catalogue = catalogue,
                 image = image,
-                urgent = urgent,
                 callStartedAtEpochMs = call.startedAtEpochMs
             )
 
@@ -485,7 +461,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         quotation: Boolean,
         catalogue: Boolean,
         image: Boolean,
-        urgent: Boolean,
         callStartedAtEpochMs: Long
     ): String {
         val systemZone = ZoneId.systemDefault()
@@ -511,9 +486,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         if (image) infoItems += "Image"
         if (infoItems.isNotEmpty()) {
             sections += "Required: ${infoItems.joinToString(", ")}"
-        }
-        if (urgent) {
-            sections += "Priority: VERY URGENT"
         }
         if (notes.isNotBlank()) {
             sections += "Notes: $notes"
