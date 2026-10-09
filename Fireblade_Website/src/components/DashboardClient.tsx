@@ -1,6 +1,7 @@
 "use client";
 
 import DashboardInformationSent from "@/components/DashboardInformationSent";
+import DashboardShaneHandover from "@/components/DashboardShaneHandover";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -363,6 +364,7 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
       </section>}
     </section>}
 
+    {canManage && <DashboardShaneHandover />}
     {canManage && <DashboardInformationSent />}
   </>;
 }

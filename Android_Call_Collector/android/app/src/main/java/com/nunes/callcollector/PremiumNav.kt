@@ -8,7 +8,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
-enum class PremiumTab { HOME, HISTORY, CALLBACKS, PROFILE }
+enum class PremiumTab { HOME, ASSIGNED, HISTORY, CALLBACKS, PROFILE }
 
 object PremiumNav {
     private data class NavItem(
@@ -22,6 +22,7 @@ object PremiumNav {
     fun bind(activity: AppCompatActivity, root: View, active: PremiumTab) {
         val items = listOf(
             NavItem(PremiumTab.HOME, R.id.navHome, R.id.navHomeIcon, R.id.navHomeLabel, EmployeeHomeActivity::class.java),
+            NavItem(PremiumTab.ASSIGNED, R.id.navAssigned, R.id.navAssignedIcon, R.id.navAssignedLabel, AssignedCustomersActivity::class.java),
             NavItem(PremiumTab.HISTORY, R.id.navHistory, R.id.navHistoryIcon, R.id.navHistoryLabel, HistoryActivity::class.java),
             NavItem(PremiumTab.CALLBACKS, R.id.navCallbacks, R.id.navCallbacksIcon, R.id.navCallbacksLabel, CallbacksActivity::class.java),
             NavItem(PremiumTab.PROFILE, R.id.navProfile, R.id.navProfileIcon, R.id.navProfileLabel, ProfileActivity::class.java)

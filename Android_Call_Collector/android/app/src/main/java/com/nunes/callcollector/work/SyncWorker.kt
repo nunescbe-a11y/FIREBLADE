@@ -114,6 +114,50 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 }
             }
 
+            // Sync Assigned Customers for employee inbox and push pending follow-up responses
+            val assignedDao = AppDatabase.get(applicationContext).assignedCustomerDao()
+            val pendingSaves = assignedDao.getPendingSaves()
+            for (assigned in pendingSaves) {
+                state.set("SYNCING", "Uploading employee follow-up details...")
+                val saveRes = ApiClient.saveAssignedCustomerDetails(config, assigned)
+                if (saveRes.ok) {
+                    assignedDao.markSynced(assigned.detailId)
+                }
+            }
+
+            // Pull latest assigned customers in background
+            try {
+                val fetchedAssigned = ApiClient.getAssignedCustomers(config)
+                if (fetchedAssigned.isNotEmpty()) {
+                    fetchedAssigned.forEach { remote ->
+                        val localExisting = assignedDao.getByDetailId(remote.detailId)
+                        if (localExisting == null) {
+                            assignedDao.insert(remote)
+                            ApiClient.sendAssignmentReceipt(config, remote.detailId, "RECEIVED_ON_APP")
+                        } else if (localExisting.syncState == "SYNCED") {
+                            assignedDao.update(
+                                localExisting.copy(
+                                    customerName = remote.customerName,
+                                    customerPhoneRaw = remote.customerPhoneRaw,
+                                    customerPhoneNormalized = remote.customerPhoneNormalized,
+                                    productAsked = remote.productAsked,
+                                    location = remote.location,
+                                    shaneNotes = remote.shaneNotes,
+                                    veryUrgent = remote.veryUrgent,
+                                    assignedAtEpochMs = remote.assignedAtEpochMs,
+                                    status = remote.status,
+                                    quotation = remote.quotation,
+                                    catalogue = remote.catalogue,
+                                    image = remote.image,
+                                    commonRemarks = remote.commonRemarks,
+                                    savedAtEpochMs = remote.savedAtEpochMs
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
+
             if (assignmentSyncFailed) {
                 state.set("RETRYING", assignmentSyncMessage.ifBlank { "Shane assignments will retry." })
                 CallbackRefreshWorker.enqueue(applicationContext)
@@ -130,6 +174,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 dao.pendingCount() > 0 ||
                 shaneDao.pendingCount() > 0 ||
                 assignmentDao.pendingCount() > 0 ||
+                assignedDao.getPendingSaves().isNotEmpty() ||
                 pendingRecordings.size > recordingsUploaded
             ) {
                 state.set("QUEUED", "More records remain; another automatic sync will continue.")

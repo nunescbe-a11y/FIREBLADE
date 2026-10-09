@@ -33,7 +33,6 @@ export default function AppShell({ user, children }: { user: SessionUser; childr
           {item("/calls", isMarketing ? "My Calls" : "Calls")}
           {item("/callbacks", isMarketing ? "My Callbacks" : "Missed Call Performance")}
           {canManage && item("/performance", "Performance Intelligence")}
-          {canManage && item("/shane-handover", "Shane's Handover")}
           {isMarketing && item("/whatsapp", "My WhatsApp")}
           {user.role === "MANAGEMENT" && item("/management/md-whatsapp", "MD WhatsApp Report")}
           {canManage && item("/device-health", "Device Health")}

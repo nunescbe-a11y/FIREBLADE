@@ -8,8 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [CallEntity::class, RecordingEntity::class, ShaneCallDetailEntity::class, ShaneAssignmentEventEntity::class],
-    version = 7,
+    entities = [
+        CallEntity::class,
+        RecordingEntity::class,
+        ShaneCallDetailEntity::class,
+        ShaneAssignmentEventEntity::class,
+        AssignedCustomerEntity::class
+    ],
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -17,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recordingDao(): RecordingDao
     abstract fun shaneCallDetailDao(): ShaneCallDetailDao
     abstract fun shaneAssignmentEventDao(): ShaneAssignmentEventDao
+    abstract fun assignedCustomerDao(): AssignedCustomerDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -126,13 +133,50 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `assigned_customers` (" +
+                    "`detailId` TEXT NOT NULL PRIMARY KEY, " +
+                    "`assignmentEventId` TEXT, " +
+                    "`sourceDeviceId` TEXT NOT NULL DEFAULT '', " +
+                    "`sourceEmployeeId` TEXT NOT NULL DEFAULT '', " +
+                    "`sourceKind` TEXT NOT NULL DEFAULT 'ORIGINAL', " +
+                    "`sourceTitle` TEXT NOT NULL DEFAULT 'Original Shane''s Handover', " +
+                    "`customerName` TEXT NOT NULL DEFAULT '', " +
+                    "`customerPhoneRaw` TEXT NOT NULL DEFAULT '', " +
+                    "`customerPhoneNormalized` TEXT NOT NULL DEFAULT '', " +
+                    "`productAsked` TEXT NOT NULL DEFAULT '', " +
+                    "`location` TEXT NOT NULL DEFAULT '', " +
+                    "`shaneNotes` TEXT NOT NULL DEFAULT '', " +
+                    "`veryUrgent` INTEGER NOT NULL DEFAULT 0, " +
+                    "`callStartedAtEpochMs` INTEGER NOT NULL DEFAULT 0, " +
+                    "`assignedAtEpochMs` INTEGER NOT NULL DEFAULT 0, " +
+                    "`status` TEXT NOT NULL DEFAULT 'PENDING', " +
+                    "`quotation` INTEGER NOT NULL DEFAULT 0, " +
+                    "`catalogue` INTEGER NOT NULL DEFAULT 0, " +
+                    "`image` INTEGER NOT NULL DEFAULT 0, " +
+                    "`commonRemarks` TEXT NOT NULL DEFAULT '', " +
+                    "`savedAtEpochMs` INTEGER, " +
+                    "`syncState` TEXT NOT NULL DEFAULT 'SYNCED', " +
+                    "`syncError` TEXT, " +
+                    "`receivedAtEpochMs` INTEGER NOT NULL DEFAULT 0, " +
+                    "`clientUpdatedAtEpochMs` INTEGER NOT NULL DEFAULT 0)"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_assigned_customers_detailId` ON `assigned_customers` (`detailId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_assigned_customers_assignedAtEpochMs` ON `assigned_customers` (`assignedAtEpochMs`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_assigned_customers_syncState` ON `assigned_customers` (`syncState`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_assigned_customers_status` ON `assigned_customers` (`status`)")
+            }
+        }
+
         fun get(context: Context): AppDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "nunes_calls.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build()
                 .also { INSTANCE = it }
         }

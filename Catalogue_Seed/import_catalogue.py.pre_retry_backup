@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""Fireblade bulk catalogue importer.
+
+Imports the existing NUNES price/product data and catalogue file index in bulk.
+It is intentionally non-interactive: no Admin has to upload products one-by-one.
+
+By default PURCHASE PRICE is stored as internal reference only and is never customer-sendable.
+A customer-facing price column may be explicitly selected with --customer-price-column.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as dt
+import difflib
+import hashlib
+import json
+import math
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import defaultdict
+from pathlib import Path
+
+COMMON_FILE_WORDS = {
+    "pdf", "catalog", "catalogue", "mini", "brochure", "datasheet", "data", "sheet",
+    "copy", "of", "product", "products", "manual", "image", "new", "final", "latest",
+}
+SERVICE_PATTERNS = (
+    "packing", "forwarding", "freight", "lodging", "technician", "installation charges",
+    "supervision charges", "to and fro fare", "transport charges", "delivery charges",
+)
+
+
+def norm(value: object) -> str:
+    text = str(value or "").lower().replace("&", " and ")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def clean_file_stem(name: str) -> str:
+    stem = re.sub(r"\.[a-z0-9]{1,5}$", "", str(name or ""), flags=re.I)
+    stem = re.sub(r"\((?:mini|copy|\d+)(?:\s+\d+)*\)", " ", stem, flags=re.I)
+    stem = re.sub(r"\bcopy\s+of\b", " ", stem, flags=re.I)
+    tokens = [t for t in norm(stem).split() if t not in COMMON_FILE_WORDS]
+    return " ".join(tokens)
+
+
+def stable_hash(value: str, n: int = 24) -> str:
+    return hashlib.sha256(value.encode("utf-8", "ignore")).hexdigest()[:n]
+
+
+def parse_number(value: object):
+    """Parse one unambiguous monetary amount without concatenating multiple numbers.
+
+    Source price cells often contain notes such as GST, discounts, two alternative
+    prices, quantities, or both list and net prices. The previous parser stripped
+    all non-numeric characters, which could turn e.g. "95,000 ... 80,750" into
+    9500080750. Ambiguous multi-amount cells are now left unset for manual/source
+    review instead of inventing a price. Percentage-only numbers are ignored.
+    """
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in {"nan", "none", "-"}:
+        return None
+
+    text = raw.replace("\u00a0", " ")
+    candidates = []
+    pattern = re.compile(r"(?<![\d.])(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+|=\d{2})?(?![\d.])")
+    for match in pattern.finditer(text):
+        # Ignore percentages such as 18% GST / 20% discount.
+        if re.match(r"\s*%", text[match.end():]):
+            continue
+        token = match.group(0)
+        try:
+            number = float(token.replace(",", "").replace("=", "."))
+        except ValueError:
+            continue
+        if math.isfinite(number) and number >= 0:
+            candidates.append(number)
+
+    unique = []
+    for number in candidates:
+        if number not in unique:
+            unique.append(number)
+
+    # Only persist a numeric price when the source cell resolves to exactly one
+    # monetary number. Multi-price / discounted / alternative values stay unset.
+    if len(unique) != 1:
+        return None
+    return unique[0]
+
+
+def parse_date(value: object):
+    text = str(value or "").strip()
+    if not text or text.lower() == "nan":
+        return None
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return dt.datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return None
+
+
+def parse_datetime(value: object):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%d-%b-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            d = dt.datetime.strptime(text, fmt)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=dt.timezone.utc)
+            return d.isoformat()
+        except ValueError:
+            pass
+    return None
+
+
+def parse_size(value: object):
+    text = str(value or "").strip().upper()
+    m = re.match(r"([0-9.]+)\s*(KB|MB|GB|B)?", text)
+    if not m:
+        return None
+    n = float(m.group(1)); unit = m.group(2) or "B"
+    return int(n * {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}[unit])
+
+
+def is_product_row(name: str) -> bool:
+    n = norm(name)
+    return len(n) >= 3 and not any(pattern in n for pattern in SERVICE_PATTERNS)
+
+
+class Supabase:
+    def __init__(self, url: str, key: str):
+        self.url = url.rstrip("/")
+        self.key = key.strip()
+
+    def request(self, path: str, method="GET", body=None, prefer=None):
+        data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        headers = {"apikey": self.key, "Content-Type": "application/json"}
+        if self.key.startswith("eyJ"):
+            headers["Authorization"] = f"Bearer {self.key}"
+        if prefer:
+            headers["Prefer"] = prefer
+        req = urllib.request.Request(f"{self.url}/rest/v1/{path}", data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=90) as response:
+                raw = response.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as exc:
+            text = exc.read().decode("utf-8", "replace")
+            raise RuntimeError(f"Supabase {exc.code}: {text[:1200]}") from exc
+
+    def upsert(self, table: str, rows: list[dict], conflict: str):
+        if not rows:
+            return []
+        path = f"{table}?on_conflict={urllib.parse.quote(conflict, safe=',')}"
+        return self.request(path, "POST", rows, "resolution=merge-duplicates,return=representation") or []
+
+
+def chunks(values, size=200):
+    for i in range(0, len(values), size):
+        yield values[i:i+size]
+
+
+def read_csv(path: Path):
+    with path.open("r", encoding="utf-8-sig", newline="", errors="replace") as handle:
+        yield from csv.DictReader(handle)
+
+
+def build_master(price_csv: Path, customer_price_column: str | None):
+    latest = {}
+    history_count = 0
+    for row in read_csv(price_csv):
+        product_name = str(row.get("PRODUCT NAME") or "").strip()
+        if not is_product_row(product_name):
+            continue
+        model = str(row.get("MODEL") or "").strip()
+        n_name, n_model = norm(product_name), norm(model)
+        master_key = stable_hash(f"{n_name}|{n_model}", 32)
+        date = parse_date(row.get("PRICE DATE")) or "0000-00-00"
+        history_count += 1
+        old = latest.get(master_key)
+        if not old or date >= old["_date_sort"]:
+            latest[master_key] = {
+                "_date_sort": date,
+                "master_key": master_key,
+                "product_name": product_name,
+                "normalized_name": n_name,
+                "model": model,
+                "normalized_model": n_model,
+                "specifications": str(row.get("SPECIFICATIONS") or "").strip(),
+                "supplier": str(row.get("SUPPLIER NAME ") or row.get("SUPPLIER NAME") or "").strip(),
+                "purchase_price": parse_number(row.get("PURCHASE PRICE ") or row.get("PURCHASE PRICE")),
+                "customer_price": parse_number(row.get(customer_price_column)) if customer_price_column else None,
+                "price_date": None if date == "0000-00-00" else date,
+            }
+    return latest, history_count
+
+
+def make_product_rows(master: dict):
+    rows = []
+    for item in master.values():
+        digest = stable_hash(item["master_key"], 12).upper()
+        search_text = " ".join(x for x in [item["product_name"], item["model"], item["supplier"], item["specifications"]] if x)
+        rows.append({
+            "master_key": item["master_key"],
+            "product_code": f"FB-AUTO-{digest}",
+            "canonical_name": item["product_name"][:500],
+            "normalized_name": item["normalized_name"][:500],
+            "lifecycle_status": "ACTIVE",
+            "publish_status": "PUBLISHED",
+            "verification_status": "VERIFIED",
+            "search_text": search_text[:12000],
+            "created_by": "SYSTEM:bulk_catalogue",
+            "updated_by": "SYSTEM:bulk_catalogue",
+        })
+    return rows
+
+
+def match_catalogue_files(index_csv: Path, master_by_id: dict[str, dict], product_id_by_master: dict[str, str]):
+    exact = defaultdict(list)
+    token_index = defaultdict(set)
+    for mk, item in master_by_id.items():
+        if mk not in product_id_by_master:
+            continue
+        exact[item["normalized_name"]].append(mk)
+        if item["normalized_model"]:
+            exact[item["normalized_model"]].append(mk)
+        for token in set(item["normalized_name"].split() + item["normalized_model"].split()):
+            if len(token) >= 3:
+                token_index[token].add(mk)
+
+    matched, unmatched = [], []
+    for row in read_csv(index_csv):
+        file_id = str(row.get("File ID") or "").strip()
+        name = str(row.get("Name") or "").strip()
+        if not file_id or not name:
+            continue
+        stem = clean_file_stem(name)
+        if not stem:
+            unmatched.append((row, "empty_stem", 0.0)); continue
+        candidates = set(exact.get(stem, []))
+        if not candidates:
+            tokens = [t for t in stem.split() if len(t) >= 3 and token_index.get(t)]
+            postings = sorted((token_index[t] for t in sorted(set(tokens))), key=len)
+            if postings:
+                candidates = set(postings[0])
+                for posting in postings[1:4]:
+                    narrowed = candidates & posting
+                    if narrowed:
+                        candidates = narrowed
+                    if len(candidates) <= 30:
+                        break
+                if len(candidates) > 250:
+                    candidates = set(sorted(candidates)[:250])
+        if not candidates:
+            unmatched.append((row, "no_candidate", 0.0)); continue
+        best_mk, best_score = None, 0.0
+        stem_tokens = set(stem.split())
+        for mk in sorted(candidates):
+            item = master_by_id[mk]
+            target = item["normalized_name"]
+            model = item["normalized_model"]
+            seq = difflib.SequenceMatcher(None, stem, target).ratio()
+            target_tokens = set(target.split())
+            jac = len(stem_tokens & target_tokens) / max(1, len(stem_tokens | target_tokens))
+            model_bonus = 0.18 if model and (model in stem or stem in model) else 0.0
+            score = min(1.0, seq * 0.68 + jac * 0.32 + model_bonus)
+            if score > best_score:
+                best_mk, best_score = mk, score
+        if best_mk and best_score >= 0.68:
+            matched.append((row, best_mk, best_score))
+        else:
+            unmatched.append((row, "low_confidence", best_score))
+    return matched, unmatched
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--price-csv", required=True)
+    ap.add_argument("--catalogue-index-csv", required=True)
+    ap.add_argument("--customer-price-column", default=None, help="Explicit customer-facing price column. PURCHASE PRICE is never customer-sendable by default.")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--limit-products", type=int, default=0, help="Testing only; 0 imports all products.")
+    ap.add_argument("--unmatched-output", default="unmatched_catalogue_files.csv")
+    args = ap.parse_args()
+
+    price_csv = Path(args.price_csv); index_csv = Path(args.catalogue_index_csv)
+    if not price_csv.exists() or not index_csv.exists():
+        raise SystemExit("Input CSV file not found")
+
+    master, history_count = build_master(price_csv, args.customer_price_column)
+    if args.limit_products:
+        master = dict(list(master.items())[:args.limit_products])
+    product_rows = make_product_rows(master)
+    print(f"Price rows scanned: {history_count:,}")
+    print(f"Unique product/model records prepared: {len(product_rows):,}")
+    ambiguous_price_count = sum(1 for item in master.values() if item["purchase_price"] is None)
+    print(f"Purchase-price rows left unset/ambiguous: {ambiguous_price_count:,}")
+
+    if args.dry_run:
+        fake_ids = {mk: mk for mk in master}
+        matched, unmatched = match_catalogue_files(index_csv, master, fake_ids)
+        print(f"Catalogue files confidently matched: {len(matched):,}")
+        print(f"Catalogue files requiring exception review: {len(unmatched):,}")
+        return 0
+
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+    if not url or not key:
+        raise SystemExit("SUPABASE_URL and SUPABASE_SECRET_KEY are required. Use Vercel env run for Preview/Staging.")
+    sb = Supabase(url, key)
+
+    product_id_by_master = {}
+    total = len(product_rows)
+    for batch_no, batch in enumerate(chunks(product_rows, 200), 1):
+        returned = sb.upsert("fireblade_products", batch, "master_key")
+        for row in returned:
+            if row.get("master_key") and row.get("id"):
+                product_id_by_master[row["master_key"]] = row["id"]
+        print(f"Products: {min(batch_no*200,total):,}/{total:,}", flush=True)
+
+    alias_rows, variant_rows, spec_rows, price_rows = [], [], [], []
+    for mk, item in master.items():
+        pid = product_id_by_master.get(mk)
+        if not pid:
+            continue
+        if item["model"]:
+            alias_rows.append({"product_id": pid, "alias": item["model"][:300], "normalized_alias": item["normalized_model"][:300], "alias_type": "MODEL_SYNONYM", "verified": True})
+            variant_rows.append({
+                "product_id": pid,
+                "model_code": item["model"][:300],
+                "normalized_model_code": item["normalized_model"][:300],
+                "variant_name": item["model"][:300],
+                "normalized_variant_name": item["normalized_model"][:300],
+                "status": "ACTIVE",
+                "verified": True,
+            })
+        if item["specifications"]:
+            spec_rows.append({
+                "product_id": pid,
+                "spec_key": "source_specifications",
+                "spec_label": "Technical specifications",
+                "value_text": item["specifications"][:12000],
+                "customer_priority": 100,
+                "verification_status": "VERIFIED",
+                "active": True,
+                "source_key": f"master-spec:{mk}",
+                "created_by": "SYSTEM:bulk_catalogue",
+            })
+        if item["purchase_price"] is not None:
+            price_rows.append({
+                "product_id": pid,
+                "amount": item["purchase_price"],
+                "currency": "INR",
+                "effective_from": item["price_date"],
+                "verification_status": "VERIFIED",
+                "active": True,
+                "customer_sendable": False,
+                "price_kind": "INTERNAL_PURCHASE",
+                "commercial_note": (f"Internal purchase reference; supplier: {item['supplier']}" if item["supplier"] else "Internal purchase reference"),
+                "source_key": f"purchase-price:{mk}",
+                "created_by": "SYSTEM:bulk_catalogue",
+            })
+        if item["customer_price"] is not None:
+            price_rows.append({
+                "product_id": pid,
+                "amount": item["customer_price"],
+                "currency": "INR",
+                "effective_from": item["price_date"],
+                "verification_status": "VERIFIED",
+                "active": True,
+                "customer_sendable": True,
+                "price_kind": "CUSTOMER_LIST",
+                "source_key": f"customer-price:{mk}",
+                "created_by": "SYSTEM:bulk_catalogue",
+            })
+
+    for batch in chunks(alias_rows, 300): sb.upsert("fireblade_product_aliases", batch, "product_id,normalized_alias")
+    for batch in chunks(variant_rows, 300): sb.upsert("fireblade_product_variants", batch, "product_id,normalized_model_code")
+    for batch in chunks(spec_rows, 200): sb.upsert("fireblade_product_specs", batch, "source_key")
+    for batch in chunks(price_rows, 200): sb.upsert("fireblade_product_prices", batch, "source_key")
+    print(f"Aliases: {len(alias_rows):,}; variants/models: {len(variant_rows):,}; specs: {len(spec_rows):,}; prices: {len(price_rows):,}")
+
+    roots = sb.upsert("fireblade_product_source_roots", [
+        {"source_key": "MINI_CATALOG", "display_name": "NUNES Mini Catalog", "source_type": "GOOGLE_SHEET", "drive_id": "1X-CSMAy8ZDI6T5EeAVPUiTaP-Cc2Z4G2kzaebcYzc-Y:MINI", "active": True, "customer_share_trusted": True},
+        {"source_key": "OVERALL_CATEGORY_CATALOG", "display_name": "NUNES Catalog", "source_type": "GOOGLE_SHEET", "drive_id": "1X-CSMAy8ZDI6T5EeAVPUiTaP-Cc2Z4G2kzaebcYzc-Y:CATALOG", "active": True, "customer_share_trusted": True},
+    ], "source_key")
+    root_ids = {r["source_key"]: r["id"] for r in roots}
+
+    matched, unmatched = match_catalogue_files(index_csv, master, product_id_by_master)
+    source_rows = []
+    for row, mk, score in matched:
+        source = str(row.get("Drive Source") or "").lower()
+        root_key = "MINI_CATALOG" if "mini" in source else "OVERALL_CATEGORY_CATALOG"
+        file_id = str(row.get("File ID") or "").strip()
+        source_rows.append({
+            "root_id": root_ids[root_key],
+            "drive_file_id": file_id,
+            "relative_path": str(row.get("Folder") or "")[:1000] or None,
+            "name": str(row.get("Name") or "")[:500],
+            "mime_type": "application/pdf" if str(row.get("Is PDF") or "").lower() in {"true", "1", "yes"} else "application/octet-stream",
+            "web_view_url": str(row.get("Web View Link") or "")[:2000] or None,
+            "source_modified_at": parse_datetime(row.get("Modified")),
+            "source_size_bytes": parse_size(row.get("Size")),
+            "parse_status": "EXTRACTED",
+            "active": True,
+            "metadata": {"match_master_key": mk, "match_score": round(score, 4), "drive_source": row.get("Drive Source"), "search_text": row.get("Search Text")},
+        })
+
+    file_uuid_by_drive = {}
+    for batch_no, batch in enumerate(chunks(source_rows, 200), 1):
+        returned = sb.upsert("fireblade_product_source_files", batch, "drive_file_id")
+        for row in returned:
+            file_uuid_by_drive[row["drive_file_id"]] = row["id"]
+        print(f"Source files: {min(batch_no*200,len(source_rows)):,}/{len(source_rows):,}", flush=True)
+
+    asset_rows, link_rows = [], []
+    for row, mk, score in matched:
+        file_id = str(row.get("File ID") or "").strip()
+        sfid = file_uuid_by_drive.get(file_id); pid = product_id_by_master.get(mk)
+        if not sfid or not pid:
+            continue
+        is_mini = "mini" in str(row.get("Drive Source") or "").lower()
+        asset_rows.append({
+            "product_id": pid,
+            "asset_type": "MINI_CATALOGUE" if is_mini else "CATALOGUE",
+            "title": str(row.get("Name") or "Product catalogue")[:500],
+            "source_file_id": sfid,
+            "verification_status": "VERIFIED",
+            "customer_sendable": True,
+            "active": True,
+            "created_by": "SYSTEM:bulk_catalogue",
+            "source_key": f"drive:{file_id}",
+        })
+        link_rows.append({"product_id": pid, "source_file_id": sfid, "relationship": "PRIMARY" if is_mini else "SUPPORTING"})
+
+    for batch in chunks(asset_rows, 200): sb.upsert("fireblade_product_assets", batch, "source_key")
+    for batch in chunks(link_rows, 300): sb.upsert("fireblade_product_source_links", batch, "product_id,source_file_id")
+
+    unmatched_path = Path(args.unmatched_output)
+    with unmatched_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["File ID", "Drive Source", "Name", "Reason", "Best Score", "Web View Link"])
+        for row, reason, score in unmatched:
+            writer.writerow([row.get("File ID"), row.get("Drive Source"), row.get("Name"), reason, f"{score:.4f}", row.get("Web View Link")])
+
+    print(f"Catalogue assets auto-linked and customer-sendable: {len(asset_rows):,}")
+    print(f"Exceptions requiring review: {len(unmatched):,} -> {unmatched_path}")
+    print("Bulk catalogue import complete.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

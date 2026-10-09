@@ -1,0 +1,15 @@
+{
+  "source": "Fireblade-V5-Staging published product revisions",
+  "generated_for": "Fireblade Gen 2 production catalogue promotion",
+  "note": "These are exact primary source references from approved staging revisions. They are provenance references, not automatic customer-sendable approvals.",
+  "products": [
+    {"product_code":"FB-PROD-001000","canonical_name":"Digital pH Meter VT 10","primary_drive_file_id":"1RMcQZAKRWR4gFdij6Jp6dnx2-Ao0kI5O","primary_file_name":"Copy of Copy of Digital PH meter VT 10.pdf"},
+    {"product_code":"FB-PROD-001001","canonical_name":"V-TECH Waterproof Digital pH Meter VT-54","primary_drive_file_id":"1xelHpu_6e_KhiUmaIhk7lDjrz57RNB0M","primary_file_name":"Copy of Waterproof Digital pH Meter VT-54.pdf"},
+    {"product_code":"FB-PROD-001002","canonical_name":"Soil pH Tester VTI981030","primary_drive_file_id":"1DpT4yA6dB0Uy1RJWKuMQDkMDaTbzORTY","primary_file_name":"Copy of Soil pH Tester -VTI981030.pdf"},
+    {"product_code":"FB-PROD-001003","canonical_name":"Digital Brix Refractometer VR 871","primary_drive_file_id":"1BbC7_3FaMeK-xobtBVG52rIC9VEfqXnX","primary_file_name":"Digital Brix Refractometer VR 871.pdf"},
+    {"product_code":"FB-PROD-001004","canonical_name":"Ultrasonic Pulse Velocity Tester","primary_drive_file_id":"1mcpay2ET9Cfam1-2t0pHsGQtFCB7yuC2","primary_file_name":"Ultrasonic Pulse Velocity Tester for Concrete.pdf"},
+    {"product_code":"FB-PROD-001005","canonical_name":"YSI ProDSS Digital Sampling System","primary_drive_file_id":"1FINLhSsU-L1KuvCyaeglv3Akgv7tryhj","primary_file_name":"Water Quality Analyser Meter.pdf"},
+    {"product_code":"FB-PROD-001006","canonical_name":"Digital pH Meter PH700","primary_drive_file_id":"18XqfoJL-9z6gJ6kDLbMeja9duMd2KAY5","primary_file_name":"Copy of portable-digital-ph-meter.pdf"},
+    {"product_code":"FB-PROD-001007","canonical_name":"Multiparameter Water Quality Meter VT-300","primary_drive_file_id":"1BW6fzr9P3KFBUT_Lx5T0nLVv5B2dV0xr","primary_file_name":"Multiparameter Water Quality Meter.pdf"}
+  ]
+}

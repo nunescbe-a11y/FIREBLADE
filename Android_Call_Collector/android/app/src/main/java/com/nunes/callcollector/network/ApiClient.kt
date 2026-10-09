@@ -282,4 +282,136 @@ object ApiClient {
             conn.disconnect()
         }
     }
+
+    fun getAssignedCustomers(config: ConfigStore): List<com.nunes.callcollector.data.AssignedCustomerEntity> {
+        if (config.apiUrl.isBlank() || config.deviceId.isBlank() || config.deviceToken.isBlank()) return emptyList()
+        val path = "${config.apiUrl}/api/v3/devices/${config.deviceId}/assigned-customers"
+        val conn = (URL(path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10000
+            readTimeout = 15000
+            instanceFollowRedirects = false
+            setRequestProperty("X-Fireblade-Token", config.deviceToken)
+        }
+        return try {
+            val code = conn.responseCode
+            if (code !in 200..299) return emptyList()
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            val arr = json.optJSONArray("assigned_customers") ?: JSONArray()
+            val list = mutableListOf<com.nunes.callcollector.data.AssignedCustomerEntity>()
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val detailId = item.optString("detail_id")
+                if (detailId.isBlank()) continue
+                list.add(
+                    com.nunes.callcollector.data.AssignedCustomerEntity(
+                        detailId = detailId,
+                        assignmentEventId = item.optString("assignment_event_id").takeIf { it.isNotBlank() },
+                        sourceDeviceId = item.optString("source_device_id", ""),
+                        sourceEmployeeId = item.optString("source_employee_id", ""),
+                        sourceKind = item.optString("source_kind", "ORIGINAL"),
+                        sourceTitle = item.optString("source_title", "Original Shane's Handover"),
+                        customerName = item.optString("customer_name", ""),
+                        customerPhoneRaw = item.optString("customer_phone_raw", ""),
+                        customerPhoneNormalized = item.optString("customer_phone_normalized", ""),
+                        productAsked = item.optString("product_asked", ""),
+                        location = item.optString("location", ""),
+                        shaneNotes = item.optString("shane_notes", ""),
+                        veryUrgent = item.optBoolean("very_urgent", false),
+                        callStartedAtEpochMs = item.optLong("call_started_at_epoch_ms", 0L),
+                        assignedAtEpochMs = item.optLong("assigned_at_epoch_ms", 0L),
+                        status = item.optString("status", "PENDING"),
+                        quotation = item.optBoolean("quotation", false),
+                        catalogue = item.optBoolean("catalogue", false),
+                        image = item.optBoolean("image", false),
+                        commonRemarks = item.optString("common_remarks", ""),
+                        savedAtEpochMs = if (item.has("saved_at_epoch_ms") && !item.isNull("saved_at_epoch_ms")) item.optLong("saved_at_epoch_ms") else null,
+                        syncState = "SYNCED",
+                        receivedAtEpochMs = System.currentTimeMillis(),
+                        clientUpdatedAtEpochMs = System.currentTimeMillis()
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    fun saveAssignedCustomerDetails(
+        config: ConfigStore,
+        customer: com.nunes.callcollector.data.AssignedCustomerEntity
+    ): SyncResult {
+        if (config.apiUrl.isBlank() || config.deviceId.isBlank() || config.deviceToken.isBlank()) {
+            return SyncResult(false, emptySet(), "Not enrolled or configured")
+        }
+        val path = "${config.apiUrl}/api/v3/devices/${config.deviceId}/assigned-customers/${customer.detailId}/save-details"
+        val payload = JSONObject().apply {
+            put("event_id", java.util.UUID.randomUUID().toString())
+            put("quotation", customer.quotation)
+            put("catalogue", customer.catalogue)
+            put("image", customer.image)
+            put("common_remarks", customer.commonRemarks)
+            put("saved_at_epoch_ms", customer.savedAtEpochMs ?: System.currentTimeMillis())
+        }
+
+        val conn = (URL(path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10000
+            readTimeout = 15000
+            instanceFollowRedirects = false
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-Fireblade-Token", config.deviceToken)
+        }
+
+        return try {
+            conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+            val code = conn.responseCode
+            val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code in 200..299) {
+                SyncResult(true, setOf(customer.detailId), "Saved details")
+            } else {
+                SyncResult(false, emptySet(), "HTTP $code: ${text.take(300)}")
+            }
+        } catch (e: Exception) {
+            SyncResult(false, emptySet(), e.message ?: e.javaClass.simpleName)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    fun sendAssignmentReceipt(
+        config: ConfigStore,
+        detailId: String,
+        receiptType: String = "RECEIVED_ON_APP"
+    ): Boolean {
+        if (config.apiUrl.isBlank() || config.deviceId.isBlank() || config.deviceToken.isBlank()) return false
+        val path = "${config.apiUrl}/api/v3/devices/${config.deviceId}/assigned-customers/$detailId/receipt"
+        val payload = JSONObject().apply {
+            put("receipt_type", receiptType)
+            put("occurred_at_epoch_ms", System.currentTimeMillis())
+        }
+        val conn = (URL(path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10000
+            readTimeout = 15000
+            instanceFollowRedirects = false
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-Fireblade-Token", config.deviceToken)
+        }
+        return try {
+            conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+            conn.responseCode in 200..299
+        } catch (e: Exception) {
+            false
+        } finally {
+            conn.disconnect()
+        }
+    }
 }

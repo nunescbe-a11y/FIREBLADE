@@ -101,10 +101,25 @@ class ShaneAssignmentEvent(BaseModel):
     event_id: str = Field(min_length=36, max_length=36)
     detail_id: str = Field(min_length=36, max_length=36)
     assigned_to_employee_id: str = Field(min_length=1, max_length=100)
-    event_type: Literal["ASSIGNED", "REASSIGNED", "WHATSAPP_HANDOFF_OPENED"]
+    event_type: Literal["ASSIGNED", "REASSIGNED", "WHATSAPP_HANDOFF_OPENED", "EMPLOYEE_SAVED_DETAILS", "RECEIVED_ON_APP", "SEEN_ON_APP"]
     occurred_at_epoch_ms: int = Field(gt=0)
     whatsapp_recipient_number: str = Field(default="", max_length=64)
     form_snapshot: dict = Field(default_factory=dict)
+
+
+class EmployeeSaveDetails(BaseModel):
+    event_id: Optional[str] = None
+    quotation: bool = False
+    catalogue: bool = False
+    image: bool = False
+    common_remarks: str = Field(default="", max_length=4000)
+    saved_at_epoch_ms: int = Field(gt=0)
+
+
+class AssignmentReceipt(BaseModel):
+    event_id: Optional[str] = None
+    receipt_type: Literal["RECEIVED_ON_APP", "SEEN_ON_APP"] = "RECEIVED_ON_APP"
+    occurred_at_epoch_ms: int = Field(gt=0)
 
 
 def install_routes(app, db, health_model):
@@ -650,6 +665,262 @@ def install_routes(app, db, health_model):
         db("POST", "fireblade_shane_assignment_events?on_conflict=event_id",
            record, "resolution=ignore-duplicates,return=minimal")
         return {"ok": True, "event_id": event_id}
+
+    @app.get("/api/v3/devices/{device_id}/assigned-customers")
+    def get_assigned_customers(
+        device_id: str,
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        device_id = device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+
+        _, assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id&device_id=eq." + quote(device_id, safe="") +
+            "&assigned_until=is.null&limit=2"
+        )
+        if not assignments or len(assignments) != 1:
+            raise HTTPException(409, "Device has no active employee assignment")
+
+        employee_id = str(assignments[0].get("employee_id") or "").strip()
+        if not employee_id:
+            raise HTTPException(409, "Employee ID missing for active device")
+
+        # Fetch all assignment events for this employee where WhatsApp was opened (handoff triggered)
+        _, events = db(
+            "GET",
+            "fireblade_shane_assignment_events?"
+            "select=*&assigned_to_employee_id=eq." + quote(employee_id, safe="") +
+            "&order=occurred_at_epoch_ms.desc"
+        )
+        events = events or []
+
+        # Find detail_ids where WHATSAPP_HANDOFF_OPENED was recorded
+        whatsapp_opened_by_detail = {}
+        saved_details_by_detail = {}
+
+        for ev in events:
+            d_id = str(ev.get("detail_id") or "")
+            e_type = str(ev.get("event_type") or "")
+            if not d_id:
+                continue
+            if e_type == "WHATSAPP_HANDOFF_OPENED" and d_id not in whatsapp_opened_by_detail:
+                whatsapp_opened_by_detail[d_id] = ev
+            elif e_type == "EMPLOYEE_SAVED_DETAILS" and d_id not in saved_details_by_detail:
+                saved_details_by_detail[d_id] = ev
+
+        if not whatsapp_opened_by_detail:
+            return {"ok": True, "employee_id": employee_id, "assigned_customers": []}
+
+        # Fetch customer details for all opened detail_ids
+        assigned_customers = []
+        for detail_id, open_event in whatsapp_opened_by_detail.items():
+            _, details_rows = db(
+                "GET",
+                "fireblade_shane_call_details?select=*&detail_id=eq." + quote(detail_id, safe="") + "&limit=1"
+            )
+            if not details_rows:
+                continue
+            detail = details_rows[0]
+            shane_device_id = str(detail.get("device_id") or "").strip().upper()
+            source_kind = "ORIGINAL" if shane_device_id == "MKT-019" else "TEST"
+            source_title = "Original Shane's Handover" if shane_device_id == "MKT-019" else "Shane Test Handover"
+
+            saved_event = saved_details_by_detail.get(detail_id)
+            snapshot = saved_event.get("form_snapshot") or {} if saved_event else {}
+
+            is_saved = bool(saved_event)
+            quotation = bool(snapshot.get("quotation", False)) if is_saved else bool(detail.get("quotation", False))
+            catalogue = bool(snapshot.get("catalogue", False)) if is_saved else bool(detail.get("catalogue", False))
+            image = bool(snapshot.get("image", False)) if is_saved else bool(detail.get("image", False))
+            common_remarks = str(snapshot.get("common_remarks") or snapshot.get("remarks") or "") if is_saved else ""
+            saved_at_epoch_ms = snapshot.get("saved_at_epoch_ms") or saved_event.get("occurred_at_epoch_ms") if is_saved else None
+
+            assigned_customers.append({
+                "detail_id": detail_id,
+                "assignment_event_id": open_event.get("event_id"),
+                "source_device_id": shane_device_id,
+                "source_employee_id": detail.get("employee_id") or "",
+                "source_kind": source_kind,
+                "source_title": source_title,
+                "customer_name": detail.get("customer_name") or "",
+                "customer_phone_raw": detail.get("phone_number_raw") or "",
+                "customer_phone_normalized": detail.get("phone_number_normalized") or "",
+                "product_asked": detail.get("product_asked") or "",
+                "location": detail.get("location") or "",
+                "shane_notes": detail.get("notes") or "",
+                "very_urgent": bool(detail.get("very_urgent", False)),
+                "call_started_at_epoch_ms": detail.get("call_started_at_epoch_ms") or 0,
+                "assigned_at_epoch_ms": open_event.get("occurred_at_epoch_ms") or 0,
+                "status": "SAVED" if is_saved else "PENDING",
+                "quotation": quotation,
+                "catalogue": catalogue,
+                "image": image,
+                "common_remarks": common_remarks,
+                "saved_at_epoch_ms": saved_at_epoch_ms,
+            })
+
+        # Sort by assigned_at_epoch_ms descending
+        assigned_customers.sort(key=lambda x: x["assigned_at_epoch_ms"], reverse=True)
+        return {"ok": True, "employee_id": employee_id, "assigned_customers": assigned_customers}
+
+    @app.post("/api/v3/devices/{device_id}/assigned-customers/{detail_id}/save-details")
+    def employee_save_assigned_customer_details(
+        device_id: str,
+        detail_id: str,
+        body: EmployeeSaveDetails,
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        device_id = device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+
+        import uuid
+        try:
+            valid_detail_id = str(uuid.UUID(detail_id))
+        except ValueError:
+            raise HTTPException(400, "Invalid detail_id format")
+
+        _, assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id&device_id=eq." + quote(device_id, safe="") +
+            "&assigned_until=is.null&limit=2"
+        )
+        if not assignments or len(assignments) != 1:
+            raise HTTPException(409, "Device has no active employee assignment")
+
+        employee_id = str(assignments[0].get("employee_id") or "").strip()
+        if not employee_id:
+            raise HTTPException(409, "Employee ID missing for active device")
+
+        # Verify that an assignment with WHATSAPP_HANDOFF_OPENED exists for this employee and detail_id
+        _, open_events = db(
+            "GET",
+            "fireblade_shane_assignment_events?"
+            "select=event_id,occurred_at_epoch_ms&detail_id=eq." + quote(valid_detail_id, safe="") +
+            "&assigned_to_employee_id=eq." + quote(employee_id, safe="") +
+            "&event_type=eq.WHATSAPP_HANDOFF_OPENED&limit=1"
+        )
+        if not open_events:
+            raise HTTPException(403, "No WhatsApp handoff assignment found for this employee and customer")
+
+        event_id = body.event_id or str(uuid.uuid4())
+        try:
+            event_id = str(uuid.UUID(event_id))
+        except ValueError:
+            event_id = str(uuid.uuid4())
+
+        form_snapshot = {
+            "quotation": body.quotation,
+            "catalogue": body.catalogue,
+            "image": body.image,
+            "common_remarks": body.common_remarks.strip(),
+            "saved_at_epoch_ms": body.saved_at_epoch_ms,
+            "saved_by_employee_id": employee_id,
+            "saved_from_device_id": device_id
+        }
+
+        # Record EMPLOYEE_SAVED_DETAILS event
+        save_event_record = {
+            "event_id": event_id,
+            "detail_id": valid_detail_id,
+            "assigned_to_employee_id": employee_id,
+            "event_type": "EMPLOYEE_SAVED_DETAILS",
+            "occurred_at_epoch_ms": body.saved_at_epoch_ms,
+            "whatsapp_recipient_number": None,
+            "form_snapshot": form_snapshot,
+        }
+        db("POST", "fireblade_shane_assignment_events?on_conflict=event_id",
+           save_event_record, "resolution=ignore-duplicates,return=minimal")
+
+        # Also update linked enquiry information sent if a matching call enquiry exists
+        try:
+            _, details = db("GET", "fireblade_shane_call_details?select=call_id,location,customer_name,phone_number_normalized&detail_id=eq." + quote(valid_detail_id, safe="") + "&limit=1")
+            if details and details[0].get("call_id"):
+                call_id = details[0]["call_id"]
+                _, enq_existing = db("GET", f"fireblade_call_enquiries?select=id&call_id=eq.{call_id}&limit=1")
+                if enq_existing:
+                    enquiry_id = enq_existing[0]["id"]
+                    if body.common_remarks.strip():
+                        db("PATCH", f"fireblade_call_enquiries?id=eq.{quote(str(enquiry_id), safe='')}", {
+                            "notes": body.common_remarks.strip(),
+                            "updated_by": employee_id,
+                            "updated_at": utcnow().isoformat()
+                        })
+                    _, info_types = db("GET", "fireblade_information_types?select=id,code&active=eq.true")
+                    if info_types:
+                        type_map = {t["code"].upper(): t["id"] for t in info_types if "code" in t and "id" in t}
+                        bool_map = {
+                            "QUOTATION": body.quotation,
+                            "CATALOGUE": body.catalogue,
+                            "IMAGE": body.image
+                        }
+                        for code, is_sent in bool_map.items():
+                            if code in type_map:
+                                type_id = type_map[code]
+                                db("POST", "fireblade_enquiry_information_sent?on_conflict=enquiry_id,information_type_id", {
+                                    "enquiry_id": enquiry_id,
+                                    "information_type_id": type_id,
+                                    "sent": is_sent,
+                                    "remarks": body.common_remarks.strip() if body.common_remarks.strip() else None,
+                                    "answered_by": employee_id,
+                                    "updated_at": utcnow().isoformat()
+                                }, "resolution=merge-duplicates,return=minimal")
+        except Exception as exc:
+            print(f"Error syncing employee response to standard enquiries: {exc}")
+
+        return {
+            "ok": True,
+            "detail_id": valid_detail_id,
+            "event_id": event_id,
+            "saved_at_epoch_ms": body.saved_at_epoch_ms
+        }
+
+    @app.post("/api/v3/devices/{device_id}/assigned-customers/{detail_id}/receipt")
+    def employee_assignment_receipt(
+        device_id: str,
+        detail_id: str,
+        body: AssignmentReceipt,
+        x_fireblade_token: Optional[str] = Header(default=None)
+    ):
+        device_id = device_id.strip().upper()
+        authorize(db, device_id, x_fireblade_token)
+
+        import uuid
+        try:
+            valid_detail_id = str(uuid.UUID(detail_id))
+        except ValueError:
+            raise HTTPException(400, "Invalid detail_id format")
+
+        _, assignments = db(
+            "GET",
+            "fireblade_device_assignments?"
+            "select=employee_id&device_id=eq." + quote(device_id, safe="") +
+            "&assigned_until=is.null&limit=2"
+        )
+        if not assignments or len(assignments) != 1:
+            raise HTTPException(409, "Device has no active employee assignment")
+
+        employee_id = str(assignments[0].get("employee_id") or "").strip()
+        event_id = body.event_id or str(uuid.uuid4())
+        try:
+            event_id = str(uuid.UUID(event_id))
+        except ValueError:
+            event_id = str(uuid.uuid4())
+
+        record = {
+            "event_id": event_id,
+            "detail_id": valid_detail_id,
+            "assigned_to_employee_id": employee_id,
+            "event_type": body.receipt_type,
+            "occurred_at_epoch_ms": body.occurred_at_epoch_ms,
+            "whatsapp_recipient_number": None,
+            "form_snapshot": {"device_id": device_id, "receipt_type": body.receipt_type},
+        }
+        db("POST", "fireblade_shane_assignment_events?on_conflict=event_id",
+           record, "resolution=ignore-duplicates,return=minimal")
+        return {"ok": True, "detail_id": valid_detail_id, "receipt_type": body.receipt_type}
 
     @app.post("/api/v3/recordings")
     def upload_recording(

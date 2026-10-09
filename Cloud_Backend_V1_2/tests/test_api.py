@@ -437,7 +437,7 @@ class DeviceApiTests(unittest.TestCase):
             }
             r = self.client.post('/api/v3/shane/call-details', json=payload, headers=HEADERS)
             self.assertEqual(r.status_code, 200, r.text)
-            self.assertEqual(r.json(), {"ok": True, "detail_id": detail_uuid})
+            self.assertEqual(r.json(), {"ok": True, "detail_id": detail_uuid, "report_sync_status": "SYNCED"})
 
             # Also verify /api/v3/call-details alias
             r2 = self.client.post('/api/v3/call-details', json=payload, headers=HEADERS)
@@ -484,5 +484,90 @@ class DeviceApiTests(unittest.TestCase):
             evt_r = self.client.post('/api/v3/shane/assignment-events', json=payload, headers=HEADERS)
             self.assertEqual(evt_r.status_code, 200, evt_r.text)
             self.assertEqual(evt_r.json(), {"ok": True, "event_id": event_uuid})
+
+    def test_employee_assigned_customers_and_single_save_details(self):
+        import uuid
+        detail_uuid = str(uuid.uuid4())
+        event_uuid = str(uuid.uuid4())
+        save_uuid = str(uuid.uuid4())
+
+        def mock_db(method, path, *args, **kwargs):
+            if 'fireblade_device_credentials' in path:
+                return (200, [{'device_id':'MKT-006','token_hash':hashlib.sha256(TOKEN.encode()).hexdigest(),'revoked_at':None}])
+            if 'fireblade_devices' in path:
+                return (200, [{'device_id':'MKT-006'}])
+            if 'fireblade_device_assignments' in path:
+                return (200, [{'employee_id':'EMP-004'}])
+            if 'fireblade_shane_assignment_events' in path:
+                if method == 'GET':
+                    return (200, [
+                        {
+                            'event_id': event_uuid,
+                            'detail_id': detail_uuid,
+                            'assigned_to_employee_id': 'EMP-004',
+                            'event_type': 'WHATSAPP_HANDOFF_OPENED',
+                            'occurred_at_epoch_ms': 1788480050000,
+                            'whatsapp_recipient_number': '6380371372',
+                            'form_snapshot': {}
+                        }
+                    ])
+                return (200, [])
+            if 'fireblade_shane_call_details' in path:
+                return (200, [{
+                    'detail_id': detail_uuid,
+                    'device_id': 'MKT-019',
+                    'employee_id': 'EMP-017',
+                    'customer_name': 'Test Customer Yazhini',
+                    'phone_number_raw': '9876543210',
+                    'phone_number_normalized': '+919876543210',
+                    'product_asked': 'Fire Extinguisher ABC',
+                    'location': 'Chennai',
+                    'notes': 'Urgent customer enquiry',
+                    'very_urgent': True,
+                    'call_started_at_epoch_ms': 1788480000000
+                }])
+            return (200, [])
+
+        with patch.object(index, '_supabase', side_effect=mock_db):
+            # 1. Get assigned customers for employee receiver
+            r = self.client.get('/api/v3/devices/MKT-006/assigned-customers', headers=HEADERS)
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertTrue(data.get("ok"))
+            self.assertEqual(data.get("employee_id"), "EMP-004")
+            self.assertEqual(len(data.get("assigned_customers")), 1)
+            item = data["assigned_customers"][0]
+            self.assertEqual(item["customer_name"], "Test Customer Yazhini")
+            self.assertEqual(item["source_kind"], "ORIGINAL")
+            self.assertEqual(item["source_title"], "Original Shane's Handover")
+            self.assertEqual(item["status"], "PENDING")
+            self.assertTrue(item["very_urgent"])
+
+            # 2. Save follow-up details with single timestamp
+            save_payload = {
+                "event_id": save_uuid,
+                "quotation": True,
+                "catalogue": False,
+                "image": True,
+                "common_remarks": "Quotation and images sent via WhatsApp",
+                "saved_at_epoch_ms": 1788480100000
+            }
+            save_r = self.client.post(f'/api/v3/devices/MKT-006/assigned-customers/{detail_uuid}/save-details', json=save_payload, headers=HEADERS)
+            self.assertEqual(save_r.status_code, 200, save_r.text)
+            self.assertEqual(save_r.json(), {
+                "ok": True,
+                "detail_id": detail_uuid,
+                "event_id": save_uuid,
+                "saved_at_epoch_ms": 1788480100000
+            })
+
+            # 3. Post assignment receipt
+            receipt_payload = {
+                "receipt_type": "RECEIVED_ON_APP",
+                "occurred_at_epoch_ms": 1788480060000
+            }
+            rec_r = self.client.post(f'/api/v3/devices/MKT-006/assigned-customers/{detail_uuid}/receipt', json=receipt_payload, headers=HEADERS)
+            self.assertEqual(rec_r.status_code, 200, rec_r.text)
+            self.assertEqual(rec_r.json(), {"ok": True, "detail_id": detail_uuid, "receipt_type": "RECEIVED_ON_APP"})
 
 if __name__=='__main__':unittest.main()
