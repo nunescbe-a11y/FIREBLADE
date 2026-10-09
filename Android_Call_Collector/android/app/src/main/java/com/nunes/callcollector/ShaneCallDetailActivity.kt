@@ -48,6 +48,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     private var existing: ShaneCallDetailEntity? = null
 
     private var marketingRecipients: List<MarketingRecipient> = emptyList()
+    private var marketingRecipientsRendered = false
     private val selectedMarketingEmployeeIds = linkedSetOf<String>()
 
     private var queuedRecipients: List<MarketingRecipient> = emptyList()
@@ -181,6 +182,8 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         if (cached.isNotEmpty()) {
             marketingRecipients = cached
             renderMarketingRecipients()
+            // The list is already on screen; do not show loading or call the API on every entry.
+            if (ShaneMarketingApi.isCacheFresh(this)) return
         }
 
         lifecycleScope.launch {
@@ -188,8 +191,12 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 val recipients = withContext(Dispatchers.IO) {
                     ShaneMarketingApi.load(this@ShaneCallDetailActivity, config)
                 }
-                marketingRecipients = recipients
-                renderMarketingRecipients()
+                // Only reconstruct row views if the backend actually changed the recipients.
+                // Otherwise keep checkbox selections and eliminate a visible refresh flicker.
+                if (!marketingRecipientsRendered || recipients != marketingRecipients) {
+                    marketingRecipients = recipients
+                    renderMarketingRecipients()
+                }
             } catch (_: Exception) {
                 if (marketingRecipients.isEmpty()) {
                     marketingRecipients = emptyList()
@@ -204,6 +211,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
     }
 
     private fun renderMarketingRecipients() {
+        marketingRecipientsRendered = true
         b.marketingEmployeeList.removeAllViews()
 
         if (marketingRecipients.isEmpty()) {

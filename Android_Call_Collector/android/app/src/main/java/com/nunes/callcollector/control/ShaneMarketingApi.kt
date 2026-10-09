@@ -16,10 +16,22 @@ object ShaneMarketingApi {
     private const val PREFS_NAME = "shane_recipients_cache_prefs"
     private const val KEY_CACHE_JSON = "recipients_json"
     private const val KEY_CACHE_TIMESTAMP = "recipients_timestamp"
+    // Keep a local snapshot for fast, repeated form openings while periodically refreshing staff.
+    private const val CACHE_FRESHNESS_MS = 5 * 60 * 1000L
+
+    fun isCacheFresh(context: Context): Boolean {
+        val savedAt = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_CACHE_TIMESTAMP, 0L)
+        val age = System.currentTimeMillis() - savedAt
+        return savedAt > 0L && age in 0L until CACHE_FRESHNESS_MS
+    }
 
     fun load(context: Context, config: ConfigStore): List<MarketingRecipient> {
         val cachedJson = getCachedJson(context)
         val cachedRecipients = if (!cachedJson.isNullOrBlank()) parseRecipients(cachedJson) else emptyList()
+
+        // Avoid making an HTTP call every time Shane reopens the customer form.
+        if (cachedRecipients.isNotEmpty() && isCacheFresh(context)) return cachedRecipients
 
         return try {
             val response = DeviceApi.request(
