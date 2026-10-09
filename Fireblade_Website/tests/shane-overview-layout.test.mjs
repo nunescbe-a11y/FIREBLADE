@@ -74,3 +74,16 @@ test("employee roster comes from active database profiles, not hardcoded photos"
   assert.match(ui, /size="md"/);
   assert.match(ui, /person.count/);
 });
+
+test("expired Shane handover sessions require sign-in without exposing recipients", () => {
+  const ui = read("src/components/DashboardShaneHandover.tsx");
+  const api = read("src/app/api/management/shane-handover/route.ts");
+  assert.match(ui, /result\.status === 401/);
+  assert.match(ui, /credentials: "same-origin"/);
+  assert.match(ui, /Your session has expired\. Please sign in again\./);
+  assert.match(ui, /href="\/login"/);
+  assert.match(ui, /!sessionExpired && <div className="department-grid"/);
+  assert.match(ui, /!sessionExpired && employee && tableExpanded/);
+  assert.match(api, /if \(!session\) return NextResponse\.json\(\{ error: "Unauthorized" \}, \{ status: 401 \}\)/);
+  assert.match(api, /session\.role !== "ADMIN" && session\.role !== "MANAGEMENT"/);
+});
