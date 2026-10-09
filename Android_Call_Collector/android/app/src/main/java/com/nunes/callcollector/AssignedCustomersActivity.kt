@@ -219,19 +219,33 @@ class AssignedCustomersActivity : AppCompatActivity() {
         dialogView.findViewById<View>(R.id.rowImages).setOnClickListener { cbImages.isChecked = !cbImages.isChecked }
         dialogView.findViewById<View>(R.id.rowCatalogue).setOnClickListener { cbCatalogue.isChecked = !cbCatalogue.isChecked }
 
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setView(dialogView)
-            .setPositiveButton("Save Details") { _, _ ->
-                saveDetails(
-                    customer = customer,
-                    quotation = cbQuotation.isChecked,
-                    images = cbImages.isChecked,
-                    catalogue = cbCatalogue.isChecked,
-                    remarks = etRemarks.text.toString().trim()
-                )
-            }
+            .setPositiveButton("Save Details", null)
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        // Keep the form open if Common Remarks are missing for any No response.
+        // Record ONE timestamp only after the complete response is validated.
+        dialog.setOnShowListener {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val remarks = etRemarks.text.toString().trim()
+                if ((!cbQuotation.isChecked || !cbImages.isChecked || !cbCatalogue.isChecked) && remarks.isBlank()) {
+                    etRemarks.error = "Common Remarks are required when any item is No"
+                    etRemarks.requestFocus()
+                } else {
+                    saveDetails(
+                        customer = customer,
+                        quotation = cbQuotation.isChecked,
+                        images = cbImages.isChecked,
+                        catalogue = cbCatalogue.isChecked,
+                        remarks = remarks
+                    )
+                    dialog.dismiss()
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun saveDetails(
