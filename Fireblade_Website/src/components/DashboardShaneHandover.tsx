@@ -39,10 +39,14 @@ const SOURCES = [
 ];
 const endpoint = (query: Record<string, string>) =>
   "/api/management/shane-handover?" + new URLSearchParams(query).toString();
+const SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again.";
 
 async function getJSON<T>(url: string, signal: AbortSignal): Promise<T> {
-  const result = await fetch(url, { cache: "no-store", signal });
-  const body = await result.json();
+  const result = await fetch(url, { cache: "no-store", credentials: "same-origin", signal });
+  // An already-rendered dashboard may outlive its HttpOnly session cookie.
+  // Re-authentication is required; never retry anonymously or remove server-side guards.
+  if (result.status === 401) throw new Error(SESSION_EXPIRED_MESSAGE);
+  const body = await result.json().catch(() => ({}));
   if (!result.ok) throw new Error(body.error || "Could not load handover details");
   return body as T;
 }
@@ -118,6 +122,7 @@ export default function DashboardShaneHandover() {
     return () => controller.abort();
   }, [source, historyId]);
 
+  const sessionExpired = error === SESSION_EXPIRED_MESSAGE || historyError === SESSION_EXPIRED_MESSAGE;
   const employees = roster && department ? roster.departments[department] || [] : [];
   const departmentCards: HandoverDepartment[] = ["MARKETING", "SERVICE"];
   const employee = employees.find(item => item.employee_id === employeeId) || null;
@@ -203,7 +208,7 @@ export default function DashboardShaneHandover() {
             onChange={e => { setTo(e.target.value); setPage(1); }} /></label>
         </div>
 
-        <div className="department-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", marginBottom: 16 }}>
+        {!sessionExpired && <div className="department-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", marginBottom: 16 }}>
           {departmentCards.map(dept => {
             const isSelected = department === dept;
             const members = roster?.departments[dept] || [];
@@ -218,9 +223,9 @@ export default function DashboardShaneHandover() {
               <small>Tap to see {dept === "SERVICE" ? "Alagupriya" : "Marketing employees"} and their profile photos</small>
             </button>;
           })}
-        </div>
+        </div>}
 
-        {department && roster && <div className="dashboard-drilldown" style={{ marginBottom: 16, boxShadow: "none" }}>
+        {!sessionExpired && department && roster && <div className="dashboard-drilldown" style={{ marginBottom: 16, boxShadow: "none" }}>
           <div className="drilldown-title">
             <strong>{department === "MARKETING" ? "Marketing" : "Service"} employees</strong>
             <button type="button" className="secondary-button"
@@ -252,13 +257,16 @@ export default function DashboardShaneHandover() {
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </label>
         </div>}
-        {error && <div className="error-banner" role="alert">{error}</div>}
-        {busy && <div className="drilldown-hint">Loading handovers...</div>}
-        {!department && <div className="drilldown-hint">Tap the Marketing or Service card to see employees and their profile photos.</div>}
-        {department && !employeeId && Boolean(employees.length) && <div className="drilldown-hint">
+        {error && <div className="error-banner" role="alert">
+          {error}
+          {sessionExpired && <p><a href="/login" className="secondary-button">Sign in again</a></p>}
+        </div>}
+        {busy && !sessionExpired && <div className="drilldown-hint">Loading handovers...</div>}
+        {!sessionExpired && !department && <div className="drilldown-hint">Tap the Marketing or Service card to see employees and their profile photos.</div>}
+        {!sessionExpired && department && !employeeId && Boolean(employees.length) && <div className="drilldown-hint">
           Tap an employee's photo/name to view the customers Shane assigned to that employee.
         </div>}
-        {employee && tableExpanded && <>
+        {!sessionExpired && employee && tableExpanded && <>
           <div className="overview-information-meta">
             <span>{records ? `${records.total} customer${records.total === 1 ? "" : "s"} assigned to ${employee.employee_name}` : "Loading..."}</span>
             <span>{from || "All dates"} – {to || "All dates"} · Assignment time (IST)</span>
@@ -287,7 +295,10 @@ export default function DashboardShaneHandover() {
             <h3>Customer assignment history</h3>
             <button className="secondary-button" type="button" onClick={() => setHistoryId("")}>Close</button>
           </div>
-          {historyError && <p className="error-banner">{historyError}</p>}
+          {historyError && <div className="error-banner" role="alert">
+            {historyError}
+            {historyError === SESSION_EXPIRED_MESSAGE && <p><a href="/login" className="secondary-button">Sign in again</a></p>}
+          </div>}
           {!history && !historyError && <p>Loading history...</p>}
           {history && <>
             <p><strong>{history.detail.customer_name || "Not recorded"}</strong> · {activeSource?.device}</p>
