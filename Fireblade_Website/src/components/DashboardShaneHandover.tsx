@@ -174,11 +174,11 @@ export default function DashboardShaneHandover() {
           <p className="muted">Select Original or Test, then Marketing or Service and an employee to see Shane&apos;s customer details.</p>
         </div>
         <div className="overview-information-actions">
-          {query && <>
+          {query && !sessionExpired && <>
             <a className="secondary-button" href={endpoint({ ...query, format: "csv" })}>CSV</a>
             <a className="secondary-button" href={endpoint({ ...query, format: "xlsx" })}>Excel</a>
           </>}
-          {query && <button type="button" className="secondary-button"
+          {query && !sessionExpired && <button type="button" className="secondary-button"
             onClick={() => setTableExpanded(value => !value)}>{tableExpanded ? "Hide" : "Show"}</button>}
           <button type="button" className="secondary-button" onClick={() => setRequestVersion(value => value + 1)}
             disabled={!source || busy}>Refresh</button>
