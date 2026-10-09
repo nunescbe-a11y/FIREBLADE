@@ -724,8 +724,14 @@ def install_routes(app, db, health_model):
                 continue
             detail = details_rows[0]
             shane_device_id = str(detail.get("device_id") or "").strip().upper()
-            source_kind = "ORIGINAL" if shane_device_id == "MKT-019" else "TEST"
-            source_title = "Original Shane's Handover" if shane_device_id == "MKT-019" else "Shane Test Handover"
+            source_employee_id = str(detail.get("employee_id") or "").strip()
+            if shane_device_id == "MKT-019" and source_employee_id == "EMP-017":
+                source_kind, source_title = "ORIGINAL", "Original Shane's Handover"
+            elif shane_device_id == "MKT-001" and source_employee_id == "TEST-SHANE-001":
+                source_kind, source_title = "TEST", "Shane Test Handover"
+            else:
+                # Never classify untrusted/non-Shane call details as Test handovers.
+                continue
 
             saved_event = saved_details_by_detail.get(detail_id)
             snapshot = saved_event.get("form_snapshot") or {} if saved_event else {}
@@ -793,6 +799,12 @@ def install_routes(app, db, health_model):
         employee_id = str(assignments[0].get("employee_id") or "").strip()
         if not employee_id:
             raise HTTPException(409, "Employee ID missing for active device")
+
+        # Preserve the existing Common Remarks rule used by regular employee enquiries.
+        if not (body.quotation and body.catalogue and body.image) and not body.common_remarks.strip():
+            raise HTTPException(400, "Common Remarks are required when Quotation, Catalogue or Image is No")
+        if body.saved_at_epoch_ms > int(utcnow().timestamp() * 1000) + 300000:
+            raise HTTPException(400, "Save timestamp cannot be in the future")
 
         # Verify that an assignment with WHATSAPP_HANDOFF_OPENED exists for this employee and detail_id
         _, open_events = db(
@@ -903,6 +915,23 @@ def install_routes(app, db, health_model):
             raise HTTPException(409, "Device has no active employee assignment")
 
         employee_id = str(assignments[0].get("employee_id") or "").strip()
+        if not employee_id:
+            raise HTTPException(409, "Employee ID missing for active device")
+
+        # Do not permit a receipt for arbitrary known detail IDs. The recipient
+        # must have a real WhatsApp-open handoff to receive or view this customer.
+        _, opened = db(
+            "GET",
+            "fireblade_shane_assignment_events?"
+            "select=event_id&detail_id=eq." + quote(valid_detail_id, safe="") +
+            "&assigned_to_employee_id=eq." + quote(employee_id, safe="") +
+            "&event_type=eq.WHATSAPP_HANDOFF_OPENED&limit=1"
+        )
+        if not opened:
+            raise HTTPException(403, "No WhatsApp handoff for this employee and customer")
+        if body.occurred_at_epoch_ms > int(utcnow().timestamp() * 1000) + 300000:
+            raise HTTPException(400, "Receipt timestamp cannot be in the future")
+
         event_id = body.event_id or str(uuid.uuid4())
         try:
             event_id = str(uuid.UUID(event_id))
