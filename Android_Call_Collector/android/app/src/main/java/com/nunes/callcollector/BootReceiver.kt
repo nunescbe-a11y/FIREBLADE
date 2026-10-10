@@ -10,6 +10,9 @@ class BootReceiver : BroadcastReceiver() {
             intent.action == Intent.ACTION_BOOT_COMPLETED ||
             intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
         ) {
+            // After a successful APK replacement, clear any old update prompt,
+            // downloaded APK, and notification before workers or screens run.
+            com.nunes.callcollector.control.AppUpdater.reconcileInstalledState(context)
             com.nunes.callcollector.control.UpdateWorker.schedule(context)
             com.nunes.callcollector.control.UpdateWorker.now(context)
             com.nunes.callcollector.control.CommandWorker.enqueue(context)
