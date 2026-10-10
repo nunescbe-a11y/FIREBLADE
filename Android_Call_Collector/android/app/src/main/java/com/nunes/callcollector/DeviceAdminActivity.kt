@@ -84,8 +84,13 @@ class DeviceAdminActivity : AppCompatActivity() {
             if (b.etSetupApiUrl.text.isNullOrBlank()) b.etSetupApiUrl.setText(config.apiUrl)
         }
 
-        b.btnInstallUpdate.visibility = if (config.availableRelease.isNotBlank()) View.VISIBLE else View.GONE
-        b.btnInstallUpdate.text = if (AppUpdater.ready(this)) "Install verified update" else "Download update"
+        // Do not offer an already-installed APK just because an old
+        // SharedPreferences flag survived Android's package replacement.
+        AppUpdater.reconcileInstalledState(this)
+        b.btnInstallUpdate.visibility =
+            if (AppUpdater.pendingVersionName(this).isNotBlank()) View.VISIBLE else View.GONE
+        b.btnInstallUpdate.text =
+            if (AppUpdater.ready(this)) "Install verified update" else "Download update"
     }
 
     private fun enroll() {
