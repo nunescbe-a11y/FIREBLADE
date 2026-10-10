@@ -76,6 +76,8 @@ class DeviceAdminActivity : AppCompatActivity() {
         b.tvAdminVersion.text = "${info.versionName ?: "Unknown"} (Code $code)"
 
         b.btnRepairEnrollment.visibility = if (enrolled) View.VISIBLE else View.GONE
+        b.btnRepairEnrollment.text = if (repairEnrollment) "Hide repair enrollment" else "Repair this phone's enrollment"
+        b.tvSetupTitle.text = if (enrolled) "Repair Enrollment" else "Enrollment"
         b.setupPanel.visibility = if (enrolled && !repairEnrollment) View.GONE else View.VISIBLE
         if (!enrolled || repairEnrollment) {
             if (b.etSetupDeviceId.text.isNullOrBlank()) b.etSetupDeviceId.setText(config.deviceId)

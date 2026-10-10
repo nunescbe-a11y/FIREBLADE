@@ -283,8 +283,19 @@ object ApiClient {
         }
     }
 
-    fun getAssignedCustomers(config: ConfigStore): List<com.nunes.callcollector.data.AssignedCustomerEntity> {
-        if (config.apiUrl.isBlank() || config.deviceId.isBlank() || config.deviceToken.isBlank()) return emptyList()
+    data class FetchAssignedResult(
+        val ok: Boolean,
+        val statusCode: Int,
+        val customers: List<com.nunes.callcollector.data.AssignedCustomerEntity>,
+        val errorMessage: String? = null
+    )
+
+    fun fetchAssignedCustomersWithResult(config: ConfigStore): FetchAssignedResult {
+        if (config.apiUrl.isBlank()) return FetchAssignedResult(false, 0, emptyList(), "API URL is empty")
+        if (config.deviceId.isBlank()) return FetchAssignedResult(false, 0, emptyList(), "Device ID is empty")
+        if (config.deviceToken.isBlank()) return FetchAssignedResult(false, 0, emptyList(), "This device is not enrolled")
+        if (!config.apiUrl.startsWith("https://")) return FetchAssignedResult(false, 0, emptyList(), "Fireblade API must use HTTPS")
+
         val path = "${config.apiUrl}/api/v3/devices/${config.deviceId}/assigned-customers"
         val conn = (URL(path).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -295,9 +306,20 @@ object ApiClient {
         }
         return try {
             val code = conn.responseCode
-            if (code !in 200..299) return emptyList()
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(text)
+            val raw = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+            if (code !in 200..299) {
+                val detail = try {
+                    val j = JSONObject(raw)
+                    j.optString("detail").ifBlank { j.optString("error").ifBlank { raw.take(200) } }
+                } catch (_: Exception) {
+                    raw.take(200)
+                }
+                return FetchAssignedResult(false, code, emptyList(), if (detail.isNotBlank()) detail else "HTTP $code")
+            }
+
+            val json = JSONObject(raw)
             val arr = json.optJSONArray("assigned_customers") ?: JSONArray()
             val list = mutableListOf<com.nunes.callcollector.data.AssignedCustomerEntity>()
             for (i in 0 until arr.length()) {
@@ -333,12 +355,16 @@ object ApiClient {
                     )
                 )
             }
-            list
+            FetchAssignedResult(true, code, list, null)
         } catch (e: Exception) {
-            emptyList()
+            FetchAssignedResult(false, 0, emptyList(), e.message ?: e.javaClass.simpleName)
         } finally {
             conn.disconnect()
         }
+    }
+
+    fun getAssignedCustomers(config: ConfigStore): List<com.nunes.callcollector.data.AssignedCustomerEntity> {
+        return fetchAssignedCustomersWithResult(config).customers
     }
 
     fun saveAssignedCustomerDetails(

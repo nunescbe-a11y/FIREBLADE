@@ -10,11 +10,15 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.nunes.callcollector.control.AutomationScheduler
+import com.nunes.callcollector.control.DeviceApi
 import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.data.AssignedCustomerEntity
 import com.nunes.callcollector.databinding.ActivityAssignedCustomersBinding
 import com.nunes.callcollector.network.ApiClient
-import com.nunes.callcollector.control.DeviceApi
+import com.nunes.callcollector.ui.PremiumNav
+import com.nunes.callcollector.ui.PremiumTab
+import com.nunes.callcollector.utils.ShaneCustomerMessageFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -39,7 +43,7 @@ class AssignedCustomersActivity : AppCompatActivity() {
 
         PremiumNav.bind(this, b.root, PremiumTab.ASSIGNED)
         b.btnBack.setOnClickListener { finish() }
-        b.btnRefresh.setOnClickListener { refresh() }
+        b.btnRetry.setOnClickListener { refresh() }
     }
 
     override fun onResume() {
@@ -61,64 +65,65 @@ class AssignedCustomersActivity : AppCompatActivity() {
             }
             render(localCustomers)
 
-            if (config.deviceToken.isNotBlank() && config.apiUrl.startsWith("https://")) {
-                val (serverCustomers, syncError) = withContext(Dispatchers.IO) {
-                    try {
-                        val fetched = ApiClient.getAssignedCustomers(config)
-                        // The legacy API parser silently returns an empty list on HTTP errors.
-                        // Verify an empty response directly so employees see the real cause.
-                        if (fetched.isEmpty()) {
-                            val response = DeviceApi.request(
-                                config,
-                                DeviceApi.devicePath(config) + "/assigned-customers"
-                            )
-                            val expected = response.optJSONArray("assigned_customers")
-                                ?: error("Invalid assigned-customer response")
-                            check(expected.length() == 0) {
-                                "Server has ${expected.length()} assigned customers but the installed app cannot read them. Update Fireblade."
-                            }
-                        }
-                        if (fetched.isNotEmpty()) {
-                            fetched.forEach { remote ->
-                                val existing = db.assignedCustomerDao().getByDetailId(remote.detailId)
-                                if (existing == null) {
-                                    db.assignedCustomerDao().insert(remote)
-                                    ApiClient.sendAssignmentReceipt(config, remote.detailId, "RECEIVED_ON_APP")
-                                } else if (existing.syncState == "SYNCED") {
-                                    db.assignedCustomerDao().update(
-                                        existing.copy(
-                                            customerName = remote.customerName,
-                                            customerPhoneRaw = remote.customerPhoneRaw,
-                                            customerPhoneNormalized = remote.customerPhoneNormalized,
-                                            productAsked = remote.productAsked,
-                                            location = remote.location,
-                                            shaneNotes = remote.shaneNotes,
-                                            veryUrgent = remote.veryUrgent,
-                                            assignedAtEpochMs = remote.assignedAtEpochMs,
-                                            status = remote.status,
-                                            quotation = remote.quotation,
-                                            catalogue = remote.catalogue,
-                                            image = remote.image,
-                                            commonRemarks = remote.commonRemarks,
-                                            savedAtEpochMs = remote.savedAtEpochMs
-                                        )
+            if (config.deviceToken.isBlank()) {
+                b.errorBanner.visibility = View.VISIBLE
+                b.tvErrorMessage.text = "This phone is not enrolled. Open Settings → Advanced Admin to connect."
+                b.tvSourceStatus.text = "Device is not enrolled. Open Advanced Admin."
+                return@launch
+            }
+            if (!config.apiUrl.startsWith("https://")) {
+                b.errorBanner.visibility = View.VISIBLE
+                b.tvErrorMessage.text = "Fireblade API URL is not configured."
+                b.tvSourceStatus.text = "API URL not configured."
+                return@launch
+            }
+
+            val fetchResult = withContext(Dispatchers.IO) {
+                try {
+                    val result = ApiClient.fetchAssignedCustomersWithResult(config)
+                    if (result.ok && result.customers.isNotEmpty()) {
+                        result.customers.forEach { remote ->
+                            val existing = db.assignedCustomerDao().getByDetailId(remote.detailId)
+                            if (existing == null) {
+                                db.assignedCustomerDao().insert(remote)
+                                ApiClient.sendAssignmentReceipt(config, remote.detailId, "RECEIVED_ON_APP")
+                            } else if (existing.syncState == "SYNCED") {
+                                db.assignedCustomerDao().update(
+                                    existing.copy(
+                                        customerName = remote.customerName,
+                                        customerPhoneRaw = remote.customerPhoneRaw,
+                                        customerPhoneNormalized = remote.customerPhoneNormalized,
+                                        productAsked = remote.productAsked,
+                                        location = remote.location,
+                                        shaneNotes = remote.shaneNotes,
+                                        veryUrgent = remote.veryUrgent,
+                                        assignedAtEpochMs = remote.assignedAtEpochMs,
+                                        status = remote.status,
+                                        quotation = remote.quotation,
+                                        catalogue = remote.catalogue,
+                                        image = remote.image,
+                                        commonRemarks = remote.commonRemarks,
+                                        savedAtEpochMs = remote.savedAtEpochMs
                                     )
-                                }
+                                )
                             }
                         }
-                        Pair(db.assignedCustomerDao().getAll(), null)
-                    } catch (e: Exception) {
-                        Pair(null, e.message ?: e.javaClass.simpleName)
                     }
+                    result
+                } catch (e: Exception) {
+                    ApiClient.FetchAssignedResult(false, 0, emptyList(), e.message ?: e.javaClass.simpleName)
                 }
-                if (serverCustomers != null) {
-                    render(serverCustomers)
-                    b.tvSourceStatus.text = "Assigned customers synced with Fireblade"
-                } else {
-                    b.tvSourceStatus.text = "Sync failed: ${syncError ?: "Unknown error"}. Tap Retry customer sync."
-                }
+            }
+
+            if (fetchResult.ok) {
+                b.errorBanner.visibility = View.GONE
+                val updatedLocal = withContext(Dispatchers.IO) { db.assignedCustomerDao().getAll() }
+                render(updatedLocal)
+                b.tvSourceStatus.text = "Assigned customers synced with Fireblade"
             } else {
-                b.tvSourceStatus.text = "Device is not enrolled or Fireblade API is not configured. Check Advanced Admin."
+                b.errorBanner.visibility = View.VISIBLE
+                b.tvErrorMessage.text = "Unable to sync assignments: ${fetchResult.errorMessage ?: "HTTP ${fetchResult.statusCode}"}"
+                b.tvSourceStatus.text = "Sync issue: ${fetchResult.errorMessage ?: "HTTP ${fetchResult.statusCode}"}"
             }
         }
     }
@@ -143,15 +148,14 @@ class AssignedCustomersActivity : AppCompatActivity() {
             view.findViewById<TextView>(R.id.tvAssignmentMessage).text =
                 ShaneCustomerMessageFormatter.format(
                     customerName = customer.customerName,
-                    phone = customer.customerPhoneRaw.ifBlank { customer.customerPhoneNormalized },
+                    phoneNumber = customer.customerPhoneRaw.ifBlank { customer.customerPhoneNormalized },
                     productAsked = customer.productAsked,
                     location = customer.location,
+                    callStartedAtEpochMs = customer.callStartedAtEpochMs,
                     notes = customer.shaneNotes,
-                    quotation = false,
-                    catalogue = false,
-                    image = false,
-                    veryUrgent = customer.veryUrgent,
-                    callStartedAtEpochMs = customer.callStartedAtEpochMs
+                    quotation = customer.quotation,
+                    catalogue = customer.catalogue,
+                    image = customer.image
                 )
 
             val tvUrgentBadge = view.findViewById<TextView>(R.id.tvUrgentBadge)

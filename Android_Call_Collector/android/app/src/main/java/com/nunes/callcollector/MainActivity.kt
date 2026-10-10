@@ -10,6 +10,8 @@ class MainActivity : AppCompatActivity() {
 
         val openCallbacks = intent.getBooleanExtra("open_callbacks", false)
         val openHistory = intent.getBooleanExtra("open_history", false)
+        val openAssigned = intent.getBooleanExtra("open_assigned", false)
+        val openAdmin = intent.getBooleanExtra("open_admin", false)
         val openShaneLatest = intent.getBooleanExtra("open_shane_latest", false)
         val openDetail = openShaneLatest ||
             intent.hasExtra(ShaneCallDetailActivity.EXTRA_PHONE_RAW) ||
@@ -22,6 +24,12 @@ class MainActivity : AppCompatActivity() {
         )
 
         val target = when {
+            openAdmin -> {
+                Intent(this, DeviceAdminActivity::class.java)
+            }
+            openAssigned -> {
+                Intent(this, AssignedCustomersActivity::class.java)
+            }
             openDetail -> {
                 Intent(this, ShaneCallDetailActivity::class.java).apply {
                     putExtras(intent)
