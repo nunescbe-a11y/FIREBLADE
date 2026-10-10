@@ -806,6 +806,69 @@ class DeviceApiTests(unittest.TestCase):
             )
             self.assertEqual(receipt.status_code, 200, receipt.text)
 
+    def test_mkt001_receives_mkt019_assigned_test_customer_once(self):
+        # Two saves of the same detail create two ASSIGNED events, but only
+        # one customer should appear on the test phone's Assigned tab.
+        import uuid
+        detail_id = str(uuid.uuid4())
+        event_first = str(uuid.uuid4())
+        event_second = str(uuid.uuid4())
+        events = [
+            {"event_id": event_second, "detail_id": detail_id,
+             "assigned_to_employee_id": "TEST-SHANE-001",
+             "event_type": "ASSIGNED", "occurred_at_epoch_ms": 1788480060000,
+             "form_snapshot": {}},
+            {"event_id": event_first, "detail_id": detail_id,
+             "assigned_to_employee_id": "TEST-SHANE-001",
+             "event_type": "ASSIGNED", "occurred_at_epoch_ms": 1788480050000,
+             "form_snapshot": {}},
+        ]
+
+        def mock_db(method, path, *args, **kwargs):
+            if "fireblade_device_credentials?" in path:
+                return (200, [{"token_hash": hashlib.sha256(TOKEN.encode()).hexdigest(),
+                                "revoked_at": None}])
+            if "fireblade_devices?" in path:
+                return (200, [{"device_id": "MKT-001"}])
+            if "fireblade_device_assignments?" in path:
+                return (200, [{"employee_id": "TEST-SHANE-001"}])
+            if "fireblade_shane_assignment_events?" in path:
+                if "select=*" in path:
+                    self.assertIn("assigned_to_employee_id=eq.TEST-SHANE-001", path)
+                    return (200, events)
+                return (200, [{"event_id": event_second}])
+            if "fireblade_shane_call_details?" in path:
+                return (200, [{
+                    "detail_id": detail_id,
+                    "device_id": "MKT-019", "employee_id": "EMP-017",
+                    "customer_name": "Test Customer",
+                    "phone_number_raw": "9876543210",
+                    "product_asked": "Water Pump",
+                    "location": "Coimbatore",
+                    "notes": "Call soon",
+                    "call_started_at_epoch_ms": 1788480000000
+                }])
+            return (200, [])
+
+        with patch.object(index, "_supabase", side_effect=mock_db):
+            inbox = self.client.get(
+                "/api/v3/devices/MKT-001/assigned-customers", headers=HEADERS
+            )
+            self.assertEqual(inbox.status_code, 200, inbox.text)
+            self.assertEqual(inbox.json()["employee_id"], "TEST-SHANE-001")
+            customers = inbox.json()["assigned_customers"]
+            self.assertEqual(len(customers), 1)
+            self.assertEqual(customers[0]["customer_name"], "Test Customer")
+            self.assertEqual(customers[0]["customer_phone_raw"], "9876543210")
+            self.assertEqual(customers[0]["assignment_event_id"], event_second)
+            receipt = self.client.post(
+                f"/api/v3/devices/MKT-001/assigned-customers/{detail_id}/receipt",
+                headers=HEADERS,
+                json={"receipt_type": "RECEIVED_ON_APP",
+                      "occurred_at_epoch_ms": 1788480070000}
+            )
+            self.assertEqual(receipt.status_code, 200, receipt.text)
+
     def test_employee_save_requires_common_remarks_if_any_item_is_no(self):
         import uuid
         detail_id = str(uuid.uuid4())
