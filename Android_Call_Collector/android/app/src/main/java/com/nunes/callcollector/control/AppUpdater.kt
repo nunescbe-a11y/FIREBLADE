@@ -40,7 +40,12 @@ object AppUpdater {
     // availableRelease flag is not proof that this phone still needs an update.
     private fun pendingRelease(context: Context): JSONObject? {
         val cached = ConfigStore(context).availableRelease
-        if (cached.isBlank()) return null
+        if (cached.isBlank()) {
+            // An old notification may survive even when the update preference
+            // was cleared. No update may be advertised without release data.
+            context.getSystemService(NotificationManager::class.java)?.cancel(36)
+            return null
+        }
         val release = try { JSONObject(cached) } catch (_: Exception) { null }
         if (release == null || release.optString("id").isBlank() ||
             release.optString("package_name") != context.packageName ||
@@ -62,6 +67,9 @@ object AppUpdater {
         val apk = file(context)
         return size > 0 && apk.isFile && apk.length() == size
     }
+
+    fun pendingVersionName(context: Context): String =
+        pendingRelease(context)?.optString("version_name").orEmpty()
 
     fun shouldPrompt(context: Context): Boolean {
         if (!ready(context)) return false
