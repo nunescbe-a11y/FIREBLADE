@@ -485,6 +485,102 @@ class DeviceApiTests(unittest.TestCase):
             self.assertEqual(evt_r.status_code, 200, evt_r.text)
             self.assertEqual(evt_r.json(), {"ok": True, "event_id": event_uuid})
 
+    def test_mkt019_can_select_mkt001_test_recipient_and_save_assignment(self):
+        import uuid
+        detail_id = str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+        writes = []
+
+        def mock_db(method, path, *args, **kwargs):
+            if "fireblade_device_credentials?" in path:
+                return (200, [{"token_hash": hashlib.sha256(TOKEN.encode()).hexdigest(),
+                               "revoked_at": None}])
+            if "fireblade_devices?select=device_id,company_phone_number" in path:
+                return (200, [{"device_id": "MKT-001", "company_phone_number": None},
+                              {"device_id": "MKT-019", "company_phone_number": "9000000000"}])
+            if "fireblade_devices?" in path:
+                return (200, [{"device_id": "MKT-019"}])
+            if "fireblade_device_assignments?" in path:
+                if "select=employee_id,device_id,company_phone_number" in path:
+                    return (200, [
+                        {"employee_id": "TEST-SHANE-001", "device_id": "MKT-001",
+                         "company_phone_number": "9000000001"},
+                        {"employee_id": "EMP-017", "device_id": "MKT-019",
+                         "company_phone_number": None}
+                    ])
+                if "device_id=eq.MKT-001" in path:
+                    return (200, [{"employee_id": "TEST-SHANE-001"}])
+                return (200, [{"employee_id": "EMP-017"}])
+            if "fireblade_employees?" in path:
+                if "select=employee_id,employee_name,department_id" in path:
+                    return (200, [
+                        {"employee_id": "TEST-SHANE-001", "employee_name": "SHANE TEST",
+                         "department_id": "dept-shane"},
+                        {"employee_id": "EMP-OTHER-SHANE", "employee_name": "Other Shane",
+                         "department_id": "dept-shane"},
+                        {"employee_id": "EMP-MKT-1", "employee_name": "Marketing A",
+                         "department_id": "dept-marketing"}
+                    ])
+                if "employee_id=eq.TEST-SHANE-001" in path:
+                    return (200, [{"employee_id": "TEST-SHANE-001",
+                                   "department_id": "dept-shane", "active": True}])
+                return (200, [{"employee_id": "EMP-017",
+                               "department_id": "dept-shane", "active": True}])
+            if "fireblade_departments?" in path:
+                if "select=id,name" in path:
+                    return (200, [{"id": "dept-shane", "name": "SHANE"},
+                                  {"id": "dept-marketing", "name": "MARKETING"}])
+                return (200, [{"name": "SHANE", "active": True}])
+            if "fireblade_shane_call_details?" in path:
+                return (200, [{"detail_id": detail_id, "device_id": "MKT-019",
+                               "employee_id": "EMP-017"}])
+            if "fireblade_shane_assignment_events?" in path:
+                if method == "POST":
+                    writes.append(args[0])
+                return (200, [])
+            return (200, [])
+
+        with patch.object(index, "_supabase", side_effect=mock_db):
+            recipients = self.client.get(
+                "/api/v3/devices/MKT-019/shane/marketing-recipients",
+                headers=HEADERS
+            )
+            self.assertEqual(recipients.status_code, 200, recipients.text)
+            test_rows = [e for e in recipients.json()["employees"]
+                         if e["employee_id"] == "TEST-SHANE-001"]
+            self.assertEqual(len(test_rows), 1)
+            self.assertTrue(test_rows[0]["available"])
+            self.assertEqual(test_rows[0]["phone_number"], "9000000001")
+            self.assertNotIn(
+                "EMP-OTHER-SHANE",
+                [e["employee_id"] for e in recipients.json()["employees"]]
+            )
+            # Other Shane / test senders must not see the special entry.
+            other = self.client.get(
+                "/api/v3/devices/MKT-001/shane/marketing-recipients",
+                headers=HEADERS
+            )
+            self.assertEqual(other.status_code, 200, other.text)
+            self.assertNotIn(
+                "TEST-SHANE-001",
+                [e["employee_id"] for e in other.json()["employees"]]
+            )
+            assigned = self.client.post(
+                "/api/v3/shane/assignment-events",
+                headers=HEADERS,
+                json={
+                    "device_id": "MKT-019", "event_id": event_id,
+                    "detail_id": detail_id,
+                    "assigned_to_employee_id": "TEST-SHANE-001",
+                    "event_type": "ASSIGNED",
+                    "occurred_at_epoch_ms": 1788480000000,
+                    "whatsapp_recipient_number": "9000000001",
+                    "form_snapshot": {"customer_name": "Test Customer"}
+                }
+            )
+            self.assertEqual(assigned.status_code, 200, assigned.text)
+            self.assertEqual(writes[0]["assigned_to_employee_id"], "TEST-SHANE-001")
+
     def test_employee_assigned_customers_and_single_save_details(self):
         import uuid
         detail_uuid = str(uuid.uuid4())
