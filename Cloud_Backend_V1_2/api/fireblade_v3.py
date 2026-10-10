@@ -330,9 +330,18 @@ def install_routes(app, db, health_model):
                         phone_number = candidate
                         break
 
+            display_name = str(employee.get("employee_name") or "").strip()
+            if device_id == "MKT-019" and recipient_employee_id == special_test_recipient_id:
+                # The existing Android recipient UI displays employee_name but not
+                # phone_number. Show both explicitly on MKT-019 without an APK update.
+                # The WhatsApp launcher still uses the exact phone_number field.
+                display_name = (
+                    f"TEST PHONE (MKT-001) - {phone_number}"
+                    if phone_number else "TEST PHONE (MKT-001) - NUMBER UNAVAILABLE"
+                )
             recipients.append({
                 "employee_id": recipient_employee_id,
-                "employee_name": str(employee.get("employee_name") or "").strip(),
+                "employee_name": display_name,
                 "phone_number": phone_number,
                 "available": bool(phone_number)
             })
