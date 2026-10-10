@@ -687,7 +687,7 @@ def install_routes(app, db, health_model):
         if not employee_id:
             raise HTTPException(409, "Employee ID missing for active device")
 
-        # Fetch all assignment events for this employee where WhatsApp was opened (handoff triggered)
+        # Fetch saved assignments for this employee; WhatsApp handoff is optional and independent.
         _, events = db(
             "GET",
             "fireblade_shane_assignment_events?"
@@ -696,8 +696,8 @@ def install_routes(app, db, health_model):
         )
         events = events or []
 
-        # Find detail_ids where WHATSAPP_HANDOFF_OPENED was recorded
-        whatsapp_opened_by_detail = {}
+        # Find detail_ids explicitly assigned by Shane, whether or not WhatsApp was opened.
+        assigned_by_detail = {}
         saved_details_by_detail = {}
 
         for ev in events:
@@ -705,17 +705,17 @@ def install_routes(app, db, health_model):
             e_type = str(ev.get("event_type") or "")
             if not d_id:
                 continue
-            if e_type == "WHATSAPP_HANDOFF_OPENED" and d_id not in whatsapp_opened_by_detail:
-                whatsapp_opened_by_detail[d_id] = ev
+            if e_type == "ASSIGNED" and d_id not in assigned_by_detail:
+                assigned_by_detail[d_id] = ev
             elif e_type == "EMPLOYEE_SAVED_DETAILS" and d_id not in saved_details_by_detail:
                 saved_details_by_detail[d_id] = ev
 
-        if not whatsapp_opened_by_detail:
+        if not assigned_by_detail:
             return {"ok": True, "employee_id": employee_id, "assigned_customers": []}
 
-        # Fetch customer details for all opened detail_ids
+        # Fetch customer details for explicitly assigned detail_ids.
         assigned_customers = []
-        for detail_id, open_event in whatsapp_opened_by_detail.items():
+        for detail_id, assignment_event in assigned_by_detail.items():
             _, details_rows = db(
                 "GET",
                 "fireblade_shane_call_details?select=*&detail_id=eq." + quote(detail_id, safe="") + "&limit=1"
@@ -745,7 +745,7 @@ def install_routes(app, db, health_model):
 
             assigned_customers.append({
                 "detail_id": detail_id,
-                "assignment_event_id": open_event.get("event_id"),
+                "assignment_event_id": assignment_event.get("event_id"),
                 "source_device_id": shane_device_id,
                 "source_employee_id": detail.get("employee_id") or "",
                 "source_kind": source_kind,
@@ -758,7 +758,7 @@ def install_routes(app, db, health_model):
                 "shane_notes": detail.get("notes") or "",
                 "very_urgent": bool(detail.get("very_urgent", False)),
                 "call_started_at_epoch_ms": detail.get("call_started_at_epoch_ms") or 0,
-                "assigned_at_epoch_ms": open_event.get("occurred_at_epoch_ms") or 0,
+                "assigned_at_epoch_ms": assignment_event.get("occurred_at_epoch_ms") or 0,
                 "status": "SAVED" if is_saved else "PENDING",
                 "quotation": quotation,
                 "catalogue": catalogue,
@@ -806,16 +806,16 @@ def install_routes(app, db, health_model):
         if body.saved_at_epoch_ms > int(utcnow().timestamp() * 1000) + 300000:
             raise HTTPException(400, "Save timestamp cannot be in the future")
 
-        # Verify that an assignment with WHATSAPP_HANDOFF_OPENED exists for this employee and detail_id
-        _, open_events = db(
+        # Authorize follow-up using the saved employee assignment; WhatsApp is not required.
+        _, assignment_events = db(
             "GET",
             "fireblade_shane_assignment_events?"
             "select=event_id,occurred_at_epoch_ms&detail_id=eq." + quote(valid_detail_id, safe="") +
             "&assigned_to_employee_id=eq." + quote(employee_id, safe="") +
-            "&event_type=eq.WHATSAPP_HANDOFF_OPENED&limit=1"
+            "&event_type=eq.ASSIGNED&limit=1"
         )
-        if not open_events:
-            raise HTTPException(403, "No WhatsApp handoff assignment found for this employee and customer")
+        if not assignment_events:
+            raise HTTPException(403, "No assignment found for this employee and customer")
 
         event_id = body.event_id or str(uuid.uuid4())
         try:
@@ -918,17 +918,17 @@ def install_routes(app, db, health_model):
         if not employee_id:
             raise HTTPException(409, "Employee ID missing for active device")
 
-        # Do not permit a receipt for arbitrary known detail IDs. The recipient
-        # must have a real WhatsApp-open handoff to receive or view this customer.
-        _, opened = db(
+        # Do not permit a receipt for arbitrary detail IDs. The recipient
+        # must have a real ASSIGNED event for this employee and customer.
+        _, assigned = db(
             "GET",
             "fireblade_shane_assignment_events?"
             "select=event_id&detail_id=eq." + quote(valid_detail_id, safe="") +
             "&assigned_to_employee_id=eq." + quote(employee_id, safe="") +
-            "&event_type=eq.WHATSAPP_HANDOFF_OPENED&limit=1"
+            "&event_type=eq.ASSIGNED&limit=1"
         )
-        if not opened:
-            raise HTTPException(403, "No WhatsApp handoff for this employee and customer")
+        if not assigned:
+            raise HTTPException(403, "No assignment for this employee and customer")
         if body.occurred_at_epoch_ms > int(utcnow().timestamp() * 1000) + 300000:
             raise HTTPException(400, "Receipt timestamp cannot be in the future")
 
