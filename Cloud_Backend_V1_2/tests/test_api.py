@@ -551,6 +551,10 @@ class DeviceApiTests(unittest.TestCase):
             self.assertEqual(len(test_rows), 1)
             self.assertTrue(test_rows[0]["available"])
             self.assertEqual(test_rows[0]["phone_number"], "9000000001")
+            self.assertEqual(
+                test_rows[0]["employee_name"],
+                "TEST PHONE (MKT-001) - 9000000001"
+            )
             self.assertNotIn(
                 "EMP-OTHER-SHANE",
                 [e["employee_id"] for e in recipients.json()["employees"]]
