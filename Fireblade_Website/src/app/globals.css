@@ -446,3 +446,14 @@ html[data-fireblade-theme="nightmare"] .health-off-drilldown,html[data-fireblade
 html[data-fireblade-theme="nightmare"] .health-off-category-card,html[data-fireblade-theme="nightmare"] .health-off-hint,html[data-fireblade-theme="nightmare"] .health-off-sims>div{background:#101820;color:var(--text);border-color:var(--line)}
 @media(max-width:900px){.health-off-employee-grid{grid-template-columns:1fr}}
 @media(max-width:700px){.health-off-category-grid{grid-template-columns:1fr}.health-off-drill-heading{display:grid}.health-off-person{grid-template-columns:auto 1fr}.health-off-person>.status-badge{grid-column:1/-1;width:max-content}.health-off-device-head{display:grid;gap:8px}.health-off-device-head>div:last-child{text-align:left}.health-off-sims{grid-template-columns:1fr}}
+
+/* Table Pagination */
+.pagination-bar{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-top:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--muted);flex-wrap:wrap;gap:12px}
+.pagination-controls{display:flex;align-items:center;gap:10px}
+.pagination-btn{min-height:36px;padding:6px 14px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.pagination-btn:hover:not(:disabled){background:var(--surface2);border-color:#b5c6d8}
+.pagination-btn:disabled{opacity:.45;cursor:not-allowed}
+.pagination-info{font-size:13px;font-weight:600;color:var(--text)}
+html[data-fireblade-theme="nightmare"] .pagination-bar{background:var(--surface);border-color:var(--line)}
+html[data-fireblade-theme="nightmare"] .pagination-btn{background:#0e1319;border-color:var(--line);color:var(--text)}
+

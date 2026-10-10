@@ -62,6 +62,35 @@ export async function supabaseRest<T>(path: string, init?: RequestInit): Promise
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
+export async function supabaseRestWithCount<T>(path: string, init?: RequestInit): Promise<{ data: T; count: number | null }> {
+  const { url, key } = getSupabaseConfig();
+  const response = await configuredFetch(`${url}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      ...serverKeyHeaders(key),
+      "Content-Type": "application/json",
+      Prefer: "count=exact",
+      ...(init?.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase ${response.status}: ${body.slice(0, 800)}`);
+  }
+  const contentRange = response.headers.get("content-range");
+  let count: number | null = null;
+  if (contentRange && contentRange.includes("/")) {
+    const totalPart = contentRange.split("/")[1];
+    if (totalPart && totalPart !== "*") {
+      count = parseInt(totalPart, 10);
+    }
+  }
+  if (response.status === 204) return { data: undefined as T, count };
+  const text = await response.text();
+  const data = text ? (JSON.parse(text) as T) : (undefined as T);
+  return { data, count };
+}
+
 export async function supabaseAuthPassword(email: string, password: string) {
   const { url } = getSupabaseConfig();
   const key = getSupabaseAuthKey();

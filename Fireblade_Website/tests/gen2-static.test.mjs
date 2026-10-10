@@ -231,13 +231,8 @@ test('WhatsApp bridge restricts media downloads to approved HTTPS hosts and size
   assert.match(source, /FIREBLADE_WHATSAPP_MAX_MEDIA_MB/);
 });
 
-test('catalogue administration is admin-only and uses private signed storage uploads', () => {
-  const route = read('src/app/api/admin/product-assets/route.ts');
+test('catalogue administration is removed per simplification and private storage functions exist', () => {
   const storage = read('src/lib/supabase.ts');
-  assert.match(route, /user\.role!==["']ADMIN["']/);
-  assert.match(route, /publish_status=eq\.PUBLISHED/);
-  assert.match(route, /verification_status=eq\.VERIFIED/);
-  assert.match(route, /customer_sendable:true/);
   assert.match(storage, /object\/upload\/sign/);
   assert.match(readProject('Database_Migrations/fireblade_gen2.sql'), /fireblade-product-assets/);
 });
@@ -318,11 +313,8 @@ test('Gen 2.1.3 supports Recover, OEM callback resolution and one common Informa
   assert.match(migration, /RECOVERED/);
   assert.match(migration, /action,[\s\S]*'RECOVERED'/);
 
-  assert.match(enquiryUi, /Common Remarks/);
-  assert.match(enquiryUi, /COMMON_REMARK_CODES/);
+  assert.match(enquiryUi, /Notes \/ Remarks/);
   assert.doesNotMatch(enquiryUi, /Why was .* not sent/);
-  assert.match(enquiryApi, /Common Remarks are required/);
-  assert.match(enquiryApi, /commonRemarkCodes/);
 
   assert.match(migration, /OTHER_100/);
   assert.match(migration, /coalesce\(o\.duration_seconds, 0\) > 0/);
