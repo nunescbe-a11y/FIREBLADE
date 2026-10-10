@@ -247,6 +247,11 @@ def install_routes(app, db, health_model):
         # Shane may also route enquiries to Alagupriya in SERVICE.
         # Keep this explicit so we do not expose every SERVICE employee.
         special_service_recipient_ids = {"EMP-008"}
+        # A production Shane phone may explicitly test assignments to MKT-001.
+        # Do not change the test employee's SHANE department or allow other
+        # SHANE employees to appear as Marketing recipients.
+        special_test_recipient_id = "TEST-SHANE-001"
+        special_test_device_id = "MKT-001"
 
         _, recipient_employees = db(
             "GET",
@@ -261,6 +266,11 @@ def install_routes(app, db, health_model):
                     str(row.get("employee_id") or "").strip() in special_service_recipient_ids
                     and str(row.get("department_id")) in service_department_ids
                 )
+                or (
+                    device_id == "MKT-019"
+                    and str(row.get("employee_id") or "").strip() == special_test_recipient_id
+                    and str(row.get("department_id")) == str(employees[0]["department_id"])
+                )
             )
         ]
 
@@ -274,6 +284,11 @@ def install_routes(app, db, health_model):
             "GET",
             "fireblade_devices?select=device_id,company_phone_number&active=eq.true"
         )
+        active_device_ids = {
+            str(row.get("device_id") or "").strip().upper()
+            for row in (active_devices or [])
+            if str(row.get("device_id") or "").strip()
+        }
         device_phones = {
             str(row.get("device_id") or "").strip().upper():
                 str(row.get("company_phone_number") or "").strip()
@@ -290,6 +305,14 @@ def install_routes(app, db, health_model):
         recipients = []
         for employee in recipient_employees:
             recipient_employee_id = str(employee.get("employee_id") or "").strip()
+            if recipient_employee_id == special_test_recipient_id:
+                # The test option must disappear if the test handset is inactive
+                # or no longer assigned to TEST-SHANE-001.
+                if special_test_device_id not in active_device_ids or not any(
+                    str(row.get("device_id") or "").strip().upper() == special_test_device_id
+                    for row in assignments_by_employee.get(special_test_recipient_id, [])
+                ):
+                    continue
             phone_number = ""
             employee_assignments = assignments_by_employee.get(recipient_employee_id, [])
 
@@ -644,7 +667,27 @@ def install_routes(app, db, health_model):
                                quote(str(recipients[0].get("department_id") or ""), safe="") + "&limit=1")
         recipient_department = (str(recipient_dept[0].get("name") or "").strip().upper()
                                 if recipient_dept and recipient_dept[0].get("active") else "")
-        if recipient_department != "MARKETING" and not (recipient_id == "EMP-008" and recipient_department == "SERVICE"):
+        allowed_service = recipient_id == "EMP-008" and recipient_department == "SERVICE"
+        allowed_test = (
+            device_id == "MKT-019"
+            and recipient_id == "TEST-SHANE-001"
+            and recipient_department == "SHANE"
+        )
+        if allowed_test:
+            _, test_devices = db(
+                "GET",
+                "fireblade_devices?select=device_id&device_id=eq.MKT-001"
+                "&active=eq.true&limit=1"
+            )
+            _, test_assignments = db(
+                "GET",
+                "fireblade_device_assignments?select=employee_id"
+                "&device_id=eq.MKT-001&employee_id=eq.TEST-SHANE-001"
+                "&assigned_until=is.null&limit=1"
+            )
+            if not test_devices or len(test_assignments or []) != 1:
+                raise HTTPException(400, "MKT-001 test recipient is not active")
+        if recipient_department != "MARKETING" and not allowed_service and not allowed_test:
             raise HTTPException(400, "Employee is not permitted as a Shane recipient")
         if len(str(body.form_snapshot)) > 20000:
             raise HTTPException(400, "Form snapshot is too large")
