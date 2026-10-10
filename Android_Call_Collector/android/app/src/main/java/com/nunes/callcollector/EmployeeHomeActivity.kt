@@ -317,20 +317,24 @@ class EmployeeHomeActivity : AppCompatActivity() {
     }
 
     private fun maybeShowMandatoryUpdate() {
-        if (mandatoryUpdateDialogShown || config.availableRelease.isBlank()) return
+        // The cached availableRelease preference survives an Android APK update.
+        // Never prompt unless the installed package is still older AND a verified
+        // candidate is on disk. Do not reopen the same dialog after returning
+        // from Android's package installer.
+        if (mandatoryUpdateDialogShown || !AppUpdater.shouldPrompt(this)) return
         mandatoryUpdateDialogShown = true
-        val ready = AppUpdater.ready(this)
+        AppUpdater.recordPromptShown(this)
         MaterialAlertDialogBuilder(this)
-            .setTitle("Fireblade update required")
-            .setMessage(
-                if (ready) "A verified Fireblade update is ready. Install it now to keep employee data and callback rules consistent."
-                else "A Fireblade update is being prepared. Keep this phone online; installation will be available shortly."
-            )
-            .setPositiveButton(if (ready) "Install update" else "OK") { _, _ ->
-                if (ready) AppUpdater.install(this)
+            .setTitle("Fireblade update available")
+            .setMessage("A verified newer Fireblade version is ready to install.")
+            .setPositiveButton("Install update") { _, _ ->
+                AppUpdater.install(this)
                 mandatoryUpdateDialogShown = false
             }
-            .setCancelable(!ready)
+            .setNegativeButton("Later") { _, _ ->
+                mandatoryUpdateDialogShown = false
+            }
+            .setOnDismissListener { mandatoryUpdateDialogShown = false }
             .show()
     }
 
