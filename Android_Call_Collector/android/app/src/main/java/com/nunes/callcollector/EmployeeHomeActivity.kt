@@ -326,7 +326,10 @@ class EmployeeHomeActivity : AppCompatActivity() {
         AppUpdater.recordPromptShown(this)
         MaterialAlertDialogBuilder(this)
             .setTitle("Fireblade update available")
-            .setMessage("A verified newer Fireblade version is ready to install.")
+            .setMessage(
+                "Fireblade ${AppUpdater.pendingVersionName(this)} is ready. " +
+                    "Your installed version is older. Install to get the latest fixes."
+            )
             .setPositiveButton("Install update") { _, _ ->
                 AppUpdater.install(this)
                 mandatoryUpdateDialogShown = false
