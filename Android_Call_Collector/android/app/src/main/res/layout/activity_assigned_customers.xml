@@ -51,6 +51,15 @@
         </LinearLayout>
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnRefresh"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="22dp"
+        android:layout_marginEnd="22dp"
+        android:text="Retry customer sync"
+        android:textAllCaps="false" />
+
     <TextView
         android:id="@+id/tvSourceStatus"
         android:layout_width="match_parent"
@@ -58,9 +67,9 @@
         android:layout_marginStart="22dp"
         android:layout_marginTop="4dp"
         android:layout_marginEnd="22dp"
-        android:text="Assigned via WhatsApp Handoff"
+        android:text="Checking for assignments..."
         android:textColor="#6B665E"
-        android:textSize="10sp" />
+        android:textSize="12sp" />
 
     <ScrollView
         android:layout_width="match_parent"
