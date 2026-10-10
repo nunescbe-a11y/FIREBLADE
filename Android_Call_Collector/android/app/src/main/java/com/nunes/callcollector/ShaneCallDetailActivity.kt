@@ -550,37 +550,18 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         image: Boolean,
         veryUrgent: Boolean,
         callStartedAtEpochMs: Long
-    ): String {
-        val systemZone = ZoneId.systemDefault()
-        val effectiveCallTimestamp = if (callStartedAtEpochMs > 0L) callStartedAtEpochMs else System.currentTimeMillis()
-        val systemDateTime = Instant.ofEpochMilli(effectiveCallTimestamp).atZone(systemZone)
-        val sentDate = systemDateTime.format(
-            DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
-        )
-        val sentTime = systemDateTime.format(
-            DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
-        )
-
-        val sections = mutableListOf(
-            "Customer Name: $customerName",
-            "Customer Number: $phone",
-            "Product Asked: $productAsked",
-            "Location: $location",
-            "Date & Time: $sentDate • $sentTime"
-        )
-        if (veryUrgent) sections += "Priority: VERY URGENT"
-        val infoItems = mutableListOf<String>()
-        if (quotation) infoItems += "Quotation"
-        if (catalogue) infoItems += "Catalogue"
-        if (image) infoItems += "Image"
-        if (infoItems.isNotEmpty()) {
-            sections += "Required: ${infoItems.joinToString(", ")}"
-        }
-        if (notes.isNotBlank()) {
-            sections += "Notes: $notes"
-        }
-        return sections.joinToString("\n\n")
-    }
+    ): String = ShaneCustomerMessageFormatter.format(
+        customerName = customerName,
+        phone = phone,
+        productAsked = productAsked,
+        location = location,
+        notes = notes,
+        quotation = quotation,
+        catalogue = catalogue,
+        image = image,
+        veryUrgent = veryUrgent,
+        callStartedAtEpochMs = callStartedAtEpochMs
+    )
 
     private fun startRecipientQueue(
         message: String,
@@ -846,5 +827,46 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         const val EXTRA_PHONE_RAW = "phone_raw"
         const val EXTRA_PHONE_NORMALIZED = "phone_normalized"
         const val EXTRA_STARTED_AT = "started_at_epoch_ms"
+    }
+}
+
+/**
+ * Single message format for Shane's WhatsApp handoff and the selected employee's
+ * Assigned Customers card. Both render from the same saved customer fields.
+ * IST keeps the displayed call date/time consistent between devices.
+ */
+internal object ShaneCustomerMessageFormatter {
+    fun format(
+        customerName: String,
+        phone: String,
+        productAsked: String,
+        location: String,
+        notes: String,
+        quotation: Boolean,
+        catalogue: Boolean,
+        image: Boolean,
+        veryUrgent: Boolean,
+        callStartedAtEpochMs: Long
+    ): String {
+        val effectiveCallTimestamp = if (callStartedAtEpochMs > 0L) callStartedAtEpochMs else System.currentTimeMillis()
+        val sentDateTime = Instant.ofEpochMilli(effectiveCallTimestamp).atZone(ZoneId.of("Asia/Kolkata"))
+        val sentDate = sentDateTime.format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH))
+        val sentTime = sentDateTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
+
+        val sections = mutableListOf(
+            "Customer Name: $customerName",
+            "Customer Number: $phone",
+            "Product Asked: $productAsked",
+            "Location: $location",
+            "Date & Time: $sentDate • $sentTime"
+        )
+        if (veryUrgent) sections += "Priority: VERY URGENT"
+        val infoItems = mutableListOf<String>()
+        if (quotation) infoItems += "Quotation"
+        if (catalogue) infoItems += "Catalogue"
+        if (image) infoItems += "Image"
+        if (infoItems.isNotEmpty()) sections += "Required: ${infoItems.joinToString(", ")}"
+        if (notes.isNotBlank()) sections += "Notes: $notes"
+        return sections.joinToString("\n\n")
     }
 }
