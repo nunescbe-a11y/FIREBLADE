@@ -76,8 +76,9 @@ object AppUpdater {
         val id = pendingRelease(context)?.optString("id").orEmpty()
         val prefs = context.getSharedPreferences(PROMPT_PREFS, Context.MODE_PRIVATE)
         return UpdateDecision.shouldShowPrompt(
-            id, prefs.getString("release", "").orEmpty(),
-            prefs.getLong("at", 0), System.currentTimeMillis()
+            id, version(context),
+            prefs.getString("release", "").orEmpty(),
+            prefs.getLong("installed_version_code", -1L)
         )
     }
 
@@ -85,6 +86,7 @@ object AppUpdater {
         val release = pendingRelease(context) ?: return
         context.getSharedPreferences(PROMPT_PREFS, Context.MODE_PRIVATE).edit()
             .putString("release", release.optString("id"))
+            .putLong("installed_version_code", version(context))
             .putLong("at", System.currentTimeMillis()).apply()
     }
 
