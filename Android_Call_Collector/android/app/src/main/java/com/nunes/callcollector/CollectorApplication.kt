@@ -18,6 +18,9 @@ class CollectorApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // On process start, drop an install prompt cached for an APK that is
+        // already installed. Runs before EmployeeHomeActivity can show a dialog.
+        com.nunes.callcollector.control.AppUpdater.reconcileInstalledState(this)
         com.nunes.callcollector.widgets.WidgetModeCoordinator.sync(this)
         com.nunes.callcollector.control.UpdateWorker.schedule(this)
         com.nunes.callcollector.callbacks.FollowUpNotifier.ensureChannel(this)
