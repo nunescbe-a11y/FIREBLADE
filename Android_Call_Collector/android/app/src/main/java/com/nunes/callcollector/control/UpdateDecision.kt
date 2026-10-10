@@ -1,25 +1,25 @@
 package com.nunes.callcollector.control
 
 /**
- * Side-effect-free decisions shared by the Android updater and its unit tests.
- * The installed PackageManager version, never a cached preference, is authoritative.
+ * PackageManager's installed version is authoritative. A new release may be
+ * offered once for each installed-version/release pair; repeatedly reopening
+ * Fireblade must never reopen the same installer prompt.
+ *
+ * A declined/cancelled update remains accessible from Advanced Admin and
+ * the download-ready notification, without nagging on every app launch.
  */
 internal object UpdateDecision {
-    private const val PROMPT_COOLDOWN_MS = 15L * 60L * 1000L
-
     fun needsUpdate(installedVersionCode: Long, releaseVersionCode: Long): Boolean =
         releaseVersionCode > installedVersionCode
 
     fun shouldShowPrompt(
         releaseId: String,
+        installedVersionCode: Long,
         previousReleaseId: String,
-        previousPromptAt: Long,
-        now: Long
-    ): Boolean {
-        if (releaseId.isBlank()) return false
-        if (releaseId != previousReleaseId) return true
-        // Reset a bad/future clock instead of suppressing updates indefinitely.
-        if (previousPromptAt <= 0L || now < previousPromptAt) return true
-        return now - previousPromptAt >= PROMPT_COOLDOWN_MS
-    }
+        previousInstalledVersionCode: Long
+    ): Boolean =
+        releaseId.isNotBlank() && (
+            releaseId != previousReleaseId ||
+                installedVersionCode != previousInstalledVersionCode
+        )
 }
