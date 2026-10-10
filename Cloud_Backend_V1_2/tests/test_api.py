@@ -505,7 +505,7 @@ class DeviceApiTests(unittest.TestCase):
                             'event_id': event_uuid,
                             'detail_id': detail_uuid,
                             'assigned_to_employee_id': 'EMP-004',
-                            'event_type': 'WHATSAPP_HANDOFF_OPENED',
+                            'event_type': 'ASSIGNED',
                             'occurred_at_epoch_ms': 1788480050000,
                             'whatsapp_recipient_number': '6380371372',
                             'form_snapshot': {}
@@ -577,10 +577,10 @@ class DeviceApiTests(unittest.TestCase):
         self.assertIn('/api/v3/devices/{device_id}/assigned-customers/{detail_id}/receipt', paths)
         self.assertIn('/api/v3/devices/{device_id}/assigned-customers/{detail_id}/save-details', paths)
 
-    def test_receipt_requires_whatsapp_handoff_for_same_employee(self):
+    def test_receipt_requires_saved_assignment_for_same_employee(self):
         import uuid
         detail_id = str(uuid.uuid4())
-        def db_without_handoff(method, path, *args, **kwargs):
+        def db_without_assignment(method, path, *args, **kwargs):
             if 'fireblade_device_credentials' in path:
                 return (200, [{'device_id': 'MKT-006',
                                 'token_hash': hashlib.sha256(TOKEN.encode()).hexdigest(),
@@ -592,7 +592,7 @@ class DeviceApiTests(unittest.TestCase):
             if 'fireblade_shane_assignment_events' in path:
                 return (200, [])
             return (200, [])
-        with patch.object(index, '_supabase', side_effect=db_without_handoff):
+        with patch.object(index, '_supabase', side_effect=db_without_assignment):
             response = self.client.post(
                 f'/api/v3/devices/MKT-006/assigned-customers/{detail_id}/receipt',
                 headers=HEADERS,
@@ -600,7 +600,111 @@ class DeviceApiTests(unittest.TestCase):
                       'occurred_at_epoch_ms': 1788480060000}
             )
         self.assertEqual(response.status_code, 403, response.text)
-        self.assertIn('No WhatsApp handoff', response.text)
+        self.assertIn('No assignment', response.text)
+
+    def test_whatsapp_open_without_saved_assignment_does_not_deliver(self):
+        # Opening WhatsApp is a separate, optional action: only Save & Send
+        # creating an ASSIGNED event makes a customer visible in Fireblade.
+        import uuid
+        detail_id = str(uuid.uuid4())
+        whatsapp_event = str(uuid.uuid4())
+
+        def mock_db(method, path, *args, **kwargs):
+            if 'fireblade_device_credentials' in path:
+                return (200, [{'device_id': 'MKT-010',
+                                'token_hash': hashlib.sha256(TOKEN.encode()).hexdigest(),
+                                'revoked_at': None}])
+            if 'fireblade_devices' in path:
+                return (200, [{'device_id': 'MKT-010'}])
+            if 'fireblade_device_assignments' in path:
+                return (200, [{'employee_id': 'EMP-008'}])
+            if 'fireblade_shane_assignment_events' in path:
+                if method == 'GET' and 'select=*' in path:
+                    return (200, [{
+                        'event_id': whatsapp_event,
+                        'detail_id': detail_id,
+                        'assigned_to_employee_id': 'EMP-008',
+                        'event_type': 'WHATSAPP_HANDOFF_OPENED',
+                        'occurred_at_epoch_ms': 1788480050000,
+                        'form_snapshot': {}
+                    }])
+                return (200, [])
+            if 'fireblade_shane_call_details' in path:
+                return (200, [{
+                    'detail_id': detail_id, 'device_id': 'MKT-019',
+                    'employee_id': 'EMP-017', 'customer_name': 'No Assignment'
+                }])
+            return (200, [])
+
+        with patch.object(index, '_supabase', side_effect=mock_db):
+            result = self.client.get('/api/v3/devices/MKT-010/assigned-customers', headers=HEADERS)
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()['assigned_customers'], [])
+            receipt = self.client.post(
+                f'/api/v3/devices/MKT-010/assigned-customers/{detail_id}/receipt',
+                headers=HEADERS,
+                json={'receipt_type': 'RECEIVED_ON_APP',
+                      'occurred_at_epoch_ms': 1788480060000}
+            )
+            self.assertEqual(receipt.status_code, 403)
+            self.assertIn('No assignment', receipt.text)
+
+    def test_service_employee_receives_saved_assignment_without_whatsapp(self):
+        # EMP-008 is the explicitly authorized Service recipient Alagupriya.
+        import uuid
+        detail_id = str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+
+        def mock_db(method, path, *args, **kwargs):
+            if 'fireblade_device_credentials' in path:
+                return (200, [{'device_id': 'MKT-010',
+                                'token_hash': hashlib.sha256(TOKEN.encode()).hexdigest(),
+                                'revoked_at': None}])
+            if 'fireblade_devices' in path:
+                return (200, [{'device_id': 'MKT-010'}])
+            if 'fireblade_device_assignments' in path:
+                return (200, [{'employee_id': 'EMP-008'}])
+            if 'fireblade_shane_assignment_events' in path:
+                if method == 'GET' and 'select=*' in path:
+                    return (200, [{
+                        'event_id': event_id,
+                        'detail_id': detail_id,
+                        'assigned_to_employee_id': 'EMP-008',
+                        'event_type': 'ASSIGNED',
+                        'occurred_at_epoch_ms': 1788480050000,
+                        'form_snapshot': {}
+                    }])
+                if method == 'GET' and 'event_type=eq.ASSIGNED' in path:
+                    return (200, [{'event_id': event_id}])
+                return (200, [])
+            if 'fireblade_shane_call_details' in path:
+                return (200, [{
+                    'detail_id': detail_id, 'device_id': 'MKT-019',
+                    'employee_id': 'EMP-017',
+                    'customer_name': 'Customer for Alagupriya',
+                    'phone_number_raw': '9876543210',
+                    'product_asked': 'Water Pump',
+                    'location': 'Coimbatore',
+                    'notes': 'Please contact',
+                    'call_started_at_epoch_ms': 1788480000000
+                }])
+            return (200, [])
+
+        with patch.object(index, '_supabase', side_effect=mock_db):
+            response = self.client.get('/api/v3/devices/MKT-010/assigned-customers', headers=HEADERS)
+            self.assertEqual(response.status_code, 200, response.text)
+            customers = response.json()['assigned_customers']
+            self.assertEqual(len(customers), 1)
+            self.assertEqual(customers[0]['customer_name'], 'Customer for Alagupriya')
+            self.assertEqual(customers[0]['assignment_event_id'], event_id)
+            self.assertEqual(customers[0]['assigned_at_epoch_ms'], 1788480050000)
+            receipt = self.client.post(
+                f'/api/v3/devices/MKT-010/assigned-customers/{detail_id}/receipt',
+                headers=HEADERS,
+                json={'receipt_type': 'RECEIVED_ON_APP',
+                      'occurred_at_epoch_ms': 1788480060000}
+            )
+            self.assertEqual(receipt.status_code, 200, receipt.text)
 
     def test_employee_save_requires_common_remarks_if_any_item_is_no(self):
         import uuid
