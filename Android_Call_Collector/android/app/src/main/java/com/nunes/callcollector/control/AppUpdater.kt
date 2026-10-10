@@ -157,16 +157,41 @@ object AppUpdater {
         }
         check(signatures(candidate).isNotEmpty()&&signatures(candidate)==signatures(installed)) {"APK signing key does not match installed Fireblade"}
     }
-    fun install(context:Context) {
-        val config=ConfigStore(context)
-        val release=JSONObject(config.availableRelease)
-        if(!context.packageManager.canRequestPackageInstalls()) {
-            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    fun install(context: Context) {
+        val release = pendingRelease(context) ?: return
+        val apk = file(context)
+        try {
+            // Re-verify before invoking Android's package installer. This
+            // prevents a stale/corrupted APK from being installed on any phone.
+            verify(context, apk, release)
+        } catch (_: Exception) {
+            clearPending(context)
+            UpdateWorker.now(context)
+            Toast.makeText(context, "Update needs to download again", Toast.LENGTH_LONG).show()
             return
         }
-        val uri=FileProvider.getUriForFile(context,"${context.packageName}.updates",file(context))
-        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            return
+        }
+        try {
+            val uri = FileProvider.getUriForFile(
+                context, "${context.packageName}.updates", apk
+            )
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
+            Toast.makeText(context, "Could not open Android installer", Toast.LENGTH_LONG).show()
+        }
     }
+
     private fun notifyReady(context:Context) {
         if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return
         val manager=context.getSystemService(NotificationManager::class.java)
