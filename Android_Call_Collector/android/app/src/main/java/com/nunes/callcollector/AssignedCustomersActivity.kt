@@ -14,6 +14,7 @@ import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.data.AssignedCustomerEntity
 import com.nunes.callcollector.databinding.ActivityAssignedCustomersBinding
 import com.nunes.callcollector.network.ApiClient
+import com.nunes.callcollector.control.DeviceApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -38,6 +39,7 @@ class AssignedCustomersActivity : AppCompatActivity() {
 
         PremiumNav.bind(this, b.root, PremiumTab.ASSIGNED)
         b.btnBack.setOnClickListener { finish() }
+        b.btnRefresh.setOnClickListener { refresh() }
     }
 
     override fun onResume() {
@@ -53,15 +55,29 @@ class AssignedCustomersActivity : AppCompatActivity() {
     private fun refresh() {
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
+            b.tvSourceStatus.text = "Synchronizing assigned customers..."
             val localCustomers = withContext(Dispatchers.IO) {
                 db.assignedCustomerDao().getAll()
             }
             render(localCustomers)
 
             if (config.deviceToken.isNotBlank() && config.apiUrl.startsWith("https://")) {
-                val serverCustomers = withContext(Dispatchers.IO) {
+                val (serverCustomers, syncError) = withContext(Dispatchers.IO) {
                     try {
                         val fetched = ApiClient.getAssignedCustomers(config)
+                        // The legacy API parser silently returns an empty list on HTTP errors.
+                        // Verify an empty response directly so employees see the real cause.
+                        if (fetched.isEmpty()) {
+                            val response = DeviceApi.request(
+                                config,
+                                DeviceApi.devicePath(config) + "/assigned-customers"
+                            )
+                            val expected = response.optJSONArray("assigned_customers")
+                                ?: error("Invalid assigned-customer response")
+                            check(expected.length() == 0) {
+                                "Server has ${expected.length()} assigned customers but the installed app cannot read them. Update Fireblade."
+                            }
+                        }
                         if (fetched.isNotEmpty()) {
                             fetched.forEach { remote ->
                                 val existing = db.assignedCustomerDao().getByDetailId(remote.detailId)
@@ -90,14 +106,19 @@ class AssignedCustomersActivity : AppCompatActivity() {
                                 }
                             }
                         }
-                        db.assignedCustomerDao().getAll()
-                    } catch (_: Exception) {
-                        null
+                        Pair(db.assignedCustomerDao().getAll(), null)
+                    } catch (e: Exception) {
+                        Pair(null, e.message ?: e.javaClass.simpleName)
                     }
                 }
                 if (serverCustomers != null) {
                     render(serverCustomers)
+                    b.tvSourceStatus.text = "Assigned customers synced with Fireblade"
+                } else {
+                    b.tvSourceStatus.text = "Sync failed: ${syncError ?: "Unknown error"}. Tap Retry customer sync."
                 }
+            } else {
+                b.tvSourceStatus.text = "Device is not enrolled or Fireblade API is not configured. Check Advanced Admin."
             }
         }
     }
