@@ -6,27 +6,33 @@ import org.junit.Test
 
 class UpdateDecisionTest {
     @Test
-    fun afterSuccessfulInstallOldReleaseIsNeverEligible() {
+    fun installedVersionNeverOffersSameOrOlderApk() {
         assertTrue(UpdateDecision.needsUpdate(34, 35))
         assertFalse(UpdateDecision.needsUpdate(35, 35))
         assertFalse(UpdateDecision.needsUpdate(36, 35))
         assertFalse(UpdateDecision.needsUpdate(34, -1))
+        assertFalse(UpdateDecision.needsUpdate(38, 38))
     }
 
     @Test
-    fun repeatPromptIsSuppressedImmediatelyAfterInstallerReturns() {
-        val now = 1_800_000L
-        assertTrue(UpdateDecision.shouldShowPrompt("new", "", 0L, now))
-        assertTrue(UpdateDecision.shouldShowPrompt("new", "old", now - 1_000L, now))
-        assertFalse(UpdateDecision.shouldShowPrompt("new", "new", now - 1_000L, now))
-        assertFalse(UpdateDecision.shouldShowPrompt("new", "new", now - 899_999L, now))
-        assertTrue(UpdateDecision.shouldShowPrompt("new", "new", now - 900_000L, now))
+    fun reopeningAppDoesNotPromptAgainForSameInstalledVersionAndRelease() {
+        assertTrue(UpdateDecision.shouldShowPrompt("release-38", 34, "", -1))
+        assertFalse(UpdateDecision.shouldShowPrompt("release-38", 34, "release-38", 34))
+        // Even if the user returns tomorrow, there is no repeated modal.
+        assertFalse(UpdateDecision.shouldShowPrompt("release-38", 34, "release-38", 34))
     }
 
     @Test
-    fun corruptOrFuturePromptStateCannotBlockNewUpdates() {
-        assertFalse(UpdateDecision.shouldShowPrompt("", "", 0L, 1_000L))
-        assertTrue(UpdateDecision.shouldShowPrompt("release", "release", 0L, 1_000L))
-        assertTrue(UpdateDecision.shouldShowPrompt("release", "release", 2_000L, 1_000L))
+    fun newVersionOrNewReleaseMayBeOfferedOnce() {
+        assertTrue(UpdateDecision.shouldShowPrompt("release-39", 34, "release-38", 34))
+        assertTrue(UpdateDecision.shouldShowPrompt("release-38", 35, "release-38", 34))
+        assertFalse(UpdateDecision.shouldShowPrompt("", 34, "", -1))
+    }
+
+    @Test
+    fun successfulInstallDisqualifiesCachedReleaseBeforeAnyPrompt() {
+        // AppUpdater.pendingRelease validates needsUpdate first, then shouldShowPrompt.
+        assertFalse(UpdateDecision.needsUpdate(38, 38))
+        assertFalse(UpdateDecision.needsUpdate(39, 38))
     }
 }
