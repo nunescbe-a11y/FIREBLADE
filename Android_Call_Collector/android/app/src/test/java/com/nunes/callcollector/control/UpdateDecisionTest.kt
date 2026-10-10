@@ -15,23 +15,24 @@ class UpdateDecisionTest {
     }
 
     @Test
-    fun reopeningAppDoesNotPromptAgainForSameInstalledVersionAndRelease() {
-        assertTrue(UpdateDecision.shouldShowPrompt("release-38", 34, "", -1))
-        assertFalse(UpdateDecision.shouldShowPrompt("release-38", 34, "release-38", 34))
-        // Even if the user returns tomorrow, there is no repeated modal.
-        assertFalse(UpdateDecision.shouldShowPrompt("release-38", 34, "release-38", 34))
+    fun sameReleaseIsNeverPromptedAgainOnAppRestartOrCancelledInstall() {
+        assertTrue(UpdateDecision.shouldShowPrompt("release-38", ""))
+        assertFalse(UpdateDecision.shouldShowPrompt("release-38", "release-38"))
+        // It must remain suppressed indefinitely, including after an
+        // intermediate installation that did not yet reach this release.
+        assertFalse(UpdateDecision.shouldShowPrompt("release-38", "release-38"))
     }
 
     @Test
-    fun newVersionOrNewReleaseMayBeOfferedOnce() {
-        assertTrue(UpdateDecision.shouldShowPrompt("release-39", 34, "release-38", 34))
-        assertTrue(UpdateDecision.shouldShowPrompt("release-38", 35, "release-38", 34))
-        assertFalse(UpdateDecision.shouldShowPrompt("", 34, "", -1))
+    fun laterReleaseStillGetsOnePrompt() {
+        assertTrue(UpdateDecision.shouldShowPrompt("release-39", "release-38"))
+        assertFalse(UpdateDecision.shouldShowPrompt("release-39", "release-39"))
+        assertFalse(UpdateDecision.shouldShowPrompt("", ""))
     }
 
     @Test
     fun successfulInstallDisqualifiesCachedReleaseBeforeAnyPrompt() {
-        // AppUpdater.pendingRelease validates needsUpdate first, then shouldShowPrompt.
+        // AppUpdater.pendingRelease checks needsUpdate before shouldShowPrompt.
         assertFalse(UpdateDecision.needsUpdate(38, 38))
         assertFalse(UpdateDecision.needsUpdate(39, 38))
     }
