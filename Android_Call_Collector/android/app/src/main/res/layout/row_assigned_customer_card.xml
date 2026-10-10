@@ -60,33 +60,14 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/tvCustomerPhone"
+        android:id="@+id/tvAssignmentMessage"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
-        android:text="+91 98765 43210"
-        android:textColor="#174EA6"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/tvProductLocation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="Product Asked • Location"
+        android:layout_marginTop="10dp"
         android:textColor="#45423E"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/tvShaneNotes"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="Shane Notes..."
-        android:textColor="#6B665E"
-        android:textSize="12sp"
-        android:visibility="gone" />
+        android:textSize="13sp"
+        android:lineSpacingExtra="2dp"
+        android:text="Customer Name: ...&#10;&#10;Customer Number: ...&#10;&#10;Product Asked: ...&#10;&#10;Location: ...&#10;&#10;Date &amp; Time: ..." />
 
     <View
         android:layout_width="match_parent"
