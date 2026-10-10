@@ -183,6 +183,19 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRepairEnrollment"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="14dp"
+            android:text="Repair this phone's enrollment"
+            android:textAllCaps="false"
+            android:textColor="#171717"
+            android:visibility="gone"
+            app:cornerRadius="16dp"
+            app:strokeColor="#D9D4CB" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRefreshWorkspace"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
