@@ -221,7 +221,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         }
 
         b.tvMarketingStatus.text =
-            "Choose one or more people. Fireblade opens each selected WhatsApp chat with the message ready."
+            "Choose employees to assign in Fireblade. WhatsApp opens for selected employees with a WhatsApp number."
 
         marketingRecipients.forEach { recipient ->
             val row = layoutInflater.inflate(
@@ -239,16 +239,18 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             name.text = recipient.employeeName
             availability.text =
                 if (recipient.available && recipient.phoneNumber.isNotBlank()) {
-                    "Ready on WhatsApp"
+                    "Fireblade + WhatsApp"
                 } else {
-                    "WhatsApp number unavailable"
+                    "Fireblade only • WhatsApp number unavailable"
                 }
 
-            val available = recipient.available && recipient.phoneNumber.isNotBlank()
-            checkbox.isEnabled = available
+            // Employees returned by the authorized API can be selected even
+            // without a WhatsApp number. Assignment does not depend on WhatsApp.
+            val available = true
+            checkbox.isEnabled = true
             checkbox.isChecked = selectedMarketingEmployeeIds.contains(recipient.employeeId)
-            root.isEnabled = available
-            root.alpha = if (available) 1f else 0.62f
+            root.isEnabled = true
+            root.alpha = 1f
 
             fun renderRowState(selected: Boolean) {
                 root.setBackgroundResource(
@@ -301,9 +303,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             b.btnSaveSend.text = "Save Details"
             return
         }
-        val availableIds = marketingRecipients
-            .filter { it.available && it.phoneNumber.isNotBlank() }
-            .mapTo(hashSetOf()) { it.employeeId }
+        val availableIds = marketingRecipients.mapTo(hashSetOf()) { it.employeeId }
         selectedMarketingEmployeeIds.retainAll(availableIds)
 
         val count = selectedMarketingEmployeeIds.size
@@ -311,7 +311,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         b.tvMarketingSelectedCount.text =
             if (count == 1) "1 employee selected" else "$count employees selected"
         b.btnSaveSend.text =
-            if (count > 0) "Save & Send on WhatsApp • $count selected"
+            if (count > 0) "Save, Assign & Send • $count selected"
             else "Save & Send on WhatsApp"
     }
 
@@ -380,11 +380,7 @@ class ShaneCallDetailActivity : AppCompatActivity() {
         val image = !isShaneRecipientDevice && b.cbImage.isChecked
         val urgent = isShaneRecipientDevice && b.cbVeryUrgent.isChecked
         val selectedRecipients = if (isShaneRecipientDevice) {
-            marketingRecipients.filter {
-                it.available &&
-                    it.phoneNumber.isNotBlank() &&
-                    selectedMarketingEmployeeIds.contains(it.employeeId)
-            }
+            marketingRecipients.filter { selectedMarketingEmployeeIds.contains(it.employeeId) }
         } else emptyList()
 
         b.btnSaveSend.isEnabled = false
@@ -496,9 +492,24 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             )
 
             if (selectedRecipients.isEmpty()) {
+                // No in-app assignment without an explicitly chosen recipient.
                 openWhatsApp(message)
             } else {
-                startRecipientQueue(message, selectedRecipients, saved)
+                val whatsappRecipients = selectedRecipients.filter {
+                    it.available && it.phoneNumber.isNotBlank()
+                }
+                Toast.makeText(
+                    this@ShaneCallDetailActivity,
+                    "Assigned to ${selectedRecipients.size} employee(s) in Fireblade. Syncing...",
+                    Toast.LENGTH_LONG
+                ).show()
+                if (whatsappRecipients.isNotEmpty()) {
+                    startRecipientQueue(message, whatsappRecipients, saved)
+                } else {
+                    // Assignment was saved for every selected employee even when
+                    // no WhatsApp destination is configured.
+                    finish()
+                }
             }
         }
     }
