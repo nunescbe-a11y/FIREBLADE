@@ -10,15 +10,11 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.nunes.callcollector.control.AutomationScheduler
 import com.nunes.callcollector.control.DeviceApi
 import com.nunes.callcollector.data.AppDatabase
 import com.nunes.callcollector.data.AssignedCustomerEntity
 import com.nunes.callcollector.databinding.ActivityAssignedCustomersBinding
 import com.nunes.callcollector.network.ApiClient
-import com.nunes.callcollector.ui.PremiumNav
-import com.nunes.callcollector.ui.PremiumTab
-import com.nunes.callcollector.utils.ShaneCustomerMessageFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -80,6 +76,14 @@ class AssignedCustomersActivity : AppCompatActivity() {
 
             val fetchResult = withContext(Dispatchers.IO) {
                 try {
+                    val pendingSaves = db.assignedCustomerDao().getPendingSaves()
+                    for (pending in pendingSaves) {
+                        val saveRes = ApiClient.saveAssignedCustomerDetails(config, pending)
+                        if (saveRes.ok) {
+                            db.assignedCustomerDao().markSynced(pending.detailId)
+                        }
+                    }
+
                     val result = ApiClient.fetchAssignedCustomersWithResult(config)
                     if (result.ok && result.customers.isNotEmpty()) {
                         result.customers.forEach { remote ->
@@ -148,14 +152,15 @@ class AssignedCustomersActivity : AppCompatActivity() {
             view.findViewById<TextView>(R.id.tvAssignmentMessage).text =
                 ShaneCustomerMessageFormatter.format(
                     customerName = customer.customerName,
-                    phoneNumber = customer.customerPhoneRaw.ifBlank { customer.customerPhoneNormalized },
+                    phone = customer.customerPhoneRaw.ifBlank { customer.customerPhoneNormalized },
                     productAsked = customer.productAsked,
                     location = customer.location,
-                    callStartedAtEpochMs = customer.callStartedAtEpochMs,
                     notes = customer.shaneNotes,
                     quotation = customer.quotation,
                     catalogue = customer.catalogue,
-                    image = customer.image
+                    image = customer.image,
+                    veryUrgent = customer.veryUrgent,
+                    callStartedAtEpochMs = customer.callStartedAtEpochMs
                 )
 
             val tvUrgentBadge = view.findViewById<TextView>(R.id.tvUrgentBadge)
@@ -296,6 +301,10 @@ class AssignedCustomersActivity : AppCompatActivity() {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
                 db.assignedCustomerDao().update(updated)
+                val saveRes = ApiClient.saveAssignedCustomerDetails(config, updated)
+                if (saveRes.ok) {
+                    db.assignedCustomerDao().markSynced(updated.detailId)
+                }
             }
             AutomationScheduler.enqueueSync(this@AssignedCustomersActivity)
             Toast.makeText(this@AssignedCustomersActivity, "Details saved and syncing", Toast.LENGTH_SHORT).show()
