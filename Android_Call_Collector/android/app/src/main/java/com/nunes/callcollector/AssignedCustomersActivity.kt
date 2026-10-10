@@ -116,21 +116,22 @@ class AssignedCustomersActivity : AppCompatActivity() {
             val view = LayoutInflater.from(this).inflate(R.layout.row_assigned_customer_card, b.assignedList, false)
             
             view.findViewById<TextView>(R.id.tvCustomerName).text = customer.customerName.ifBlank { "Unnamed Customer" }
-            view.findViewById<TextView>(R.id.tvCustomerPhone).text = customer.customerPhoneRaw.ifBlank { customer.customerPhoneNormalized.ifBlank { "No number" } }
-            
-            val details = listOfNotNull(
-                customer.productAsked.takeIf { it.isNotBlank() },
-                customer.location.takeIf { it.isNotBlank() }
-            ).joinToString("  •  ")
-            view.findViewById<TextView>(R.id.tvProductLocation).text = details.ifBlank { "General Inquiry" }
-            
-            val tvShaneNotes = view.findViewById<TextView>(R.id.tvShaneNotes)
-            if (customer.shaneNotes.isNotBlank()) {
-                tvShaneNotes.text = "Notes: ${customer.shaneNotes}"
-                tvShaneNotes.visibility = View.VISIBLE
-            } else {
-                tvShaneNotes.visibility = View.GONE
-            }
+            // Show the exact Shane WhatsApp field order and labels inside Fireblade.
+            // Follow-up checkboxes belong to this employee and must not alter
+            // the original customer message displayed in this section.
+            view.findViewById<TextView>(R.id.tvAssignmentMessage).text =
+                ShaneCustomerMessageFormatter.format(
+                    customerName = customer.customerName,
+                    phone = customer.customerPhoneRaw.ifBlank { customer.customerPhoneNormalized },
+                    productAsked = customer.productAsked,
+                    location = customer.location,
+                    notes = customer.shaneNotes,
+                    quotation = false,
+                    catalogue = false,
+                    image = false,
+                    veryUrgent = customer.veryUrgent,
+                    callStartedAtEpochMs = customer.callStartedAtEpochMs
+                )
 
             val tvUrgentBadge = view.findViewById<TextView>(R.id.tvUrgentBadge)
             tvUrgentBadge.visibility = if (customer.veryUrgent) View.VISIBLE else View.GONE
