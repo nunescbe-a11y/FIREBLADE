@@ -84,17 +84,34 @@ object AppUpdater {
         try { DeviceApi.request(config,DeviceApi.devicePath(config)+"/update-status",JSONObject().put("release_id",release?.optString("id") ?: JSONObject.NULL).put("stage",stage).put("app_version_code",version(context)).put("message",message.take(300))) } catch (_:Exception) { }
     }
     @Synchronized fun checkAndDownload(context:Context) {
+        reconcileInstalledState(context)
         val config=ConfigStore(context)
         if(config.deviceToken.isBlank())return
         val result=DeviceApi.request(config,DeviceApi.devicePath(config)+"/release?version_code=${version(context)}")
         config.lastUpdateCheck=System.currentTimeMillis()
-        if(!result.optBoolean("available")) {config.availableRelease="";file(context).delete();return}
+        if(!result.optBoolean("available")) { clearPending(context); return }
         val release=result.getJSONObject("release")
-        config.availableRelease=release.toString()
+        val releaseCode=release.getLong("version_code")
+        if (!UpdateDecision.needsUpdate(version(context), releaseCode)) {
+            clearPending(context)
+            return
+        }
+        require(release.getString("package_name") == context.packageName) {
+            "Wrong app package in update metadata"
+        }
+        val existing=pendingRelease(context)
+        if (existing != null && existing.optString("id") != release.getString("id")) {
+            clearPending(context)
+        }
         try {
             val target=file(context)
             if(target.exists()) {
-                try { verify(context,target,release); report(config,context,release,"AWAITING_INSTALL");return } catch(_:Exception) {target.delete()}
+                try {
+                    verify(context,target,release)
+                    config.availableRelease=release.toString()
+                    report(config,context,release,"AWAITING_INSTALL")
+                    return
+                } catch(_:Exception) {target.delete()}
             }
             report(config,context,release,"DOWNLOADING")
             val signed=DeviceApi.request(config,DeviceApi.devicePath(config)+"/releases/${release.getString("id")}/download").getString("url")
@@ -111,9 +128,18 @@ object AppUpdater {
                 verify(context,part,release)
                 check(part.renameTo(target)) {"Cannot save verified update"}
             } finally {conn.disconnect();part.delete()}
+            // Only mark ready after the entire APK has been verified and stored.
+            config.availableRelease=release.toString()
             report(config,context,release,"AWAITING_INSTALL")
             notifyReady(context)
-        } catch(e:Exception) {report(config,context,release,"FAILED",e.message ?: "Update failed");throw e}
+        } catch(e:Exception) {
+            if (!UpdateDecision.needsUpdate(version(context), releaseCode)) {
+                clearPending(context)
+                return
+            }
+            report(config,context,release,"FAILED",e.message ?: "Update failed")
+            throw e
+        }
     }
     @Suppress("DEPRECATION") fun verify(context:Context, apk:File, release:JSONObject) {
         check(release.getString("package_name")==context.packageName) {"Wrong app package"}
