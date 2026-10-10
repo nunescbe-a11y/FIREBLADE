@@ -18,6 +18,7 @@ import org.json.JSONObject
 class DeviceAdminActivity : AppCompatActivity() {
     private lateinit var b: ActivityDeviceAdminBinding
     private val config by lazy { ConfigStore(this) }
+    private var repairEnrollment = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +33,18 @@ class DeviceAdminActivity : AppCompatActivity() {
 
         b.btnBack.setOnClickListener { finish() }
         b.btnEnroll.setOnClickListener { enroll() }
+        b.btnRepairEnrollment.setOnClickListener {
+            repairEnrollment = !repairEnrollment
+            if (repairEnrollment) {
+                b.etSetupDeviceId.setText(config.deviceId)
+                b.etSetupApiUrl.setText(config.apiUrl)
+                b.etSetupDeviceId.isEnabled = false
+                b.etSetupApiUrl.isEnabled = false
+                b.tvAdminMessage.text =
+                    "Use a NEW one-time enrollment code from Fireblade Web. This keeps all local calls, customer details and settings."
+            }
+            render()
+        }
         b.btnRefreshWorkspace.setOnClickListener { refreshWorkspace() }
         b.btnCheckUpdate.setOnClickListener { checkUpdate() }
         b.btnInstallUpdate.setOnClickListener {
@@ -62,8 +75,9 @@ class DeviceAdminActivity : AppCompatActivity() {
         val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
         b.tvAdminVersion.text = "${info.versionName ?: "Unknown"} (Code $code)"
 
-        b.setupPanel.visibility = if (enrolled) View.GONE else View.VISIBLE
-        if (!enrolled) {
+        b.btnRepairEnrollment.visibility = if (enrolled) View.VISIBLE else View.GONE
+        b.setupPanel.visibility = if (enrolled && !repairEnrollment) View.GONE else View.VISIBLE
+        if (!enrolled || repairEnrollment) {
             if (b.etSetupDeviceId.text.isNullOrBlank()) b.etSetupDeviceId.setText(config.deviceId)
             if (b.etSetupApiUrl.text.isNullOrBlank()) b.etSetupApiUrl.setText(config.apiUrl)
         }
@@ -79,6 +93,13 @@ class DeviceAdminActivity : AppCompatActivity() {
 
         if (!deviceId.matches(Regex("[A-Z0-9_-]{1,100}"))) {
             b.tvAdminMessage.text = "Enter a valid Fireblade Device ID."
+            return
+        }
+        // Never replace a configured device identity as part of recovery.
+        if (config.deviceToken.isNotBlank() &&
+            (deviceId != config.deviceId || apiUrl != config.apiUrl)
+        ) {
+            b.tvAdminMessage.text = "Recovery must use the same Device ID and server URL."
             return
         }
         if (!apiUrl.startsWith("https://")) {
@@ -112,6 +133,7 @@ class DeviceAdminActivity : AppCompatActivity() {
                 }
 
                 b.etEnrollmentCode.text?.clear()
+                repairEnrollment = false
                 b.tvAdminMessage.text = "Enrollment verified. Fireblade Web now controls employee identity and SIM assignments."
                 com.nunes.callcollector.callbacks.CallbackRefreshWorker.enqueue(this@DeviceAdminActivity)
                 AutomationScheduler.enqueueHealth(this@DeviceAdminActivity, "CONFIG_SAVED")
