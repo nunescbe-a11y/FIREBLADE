@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -23,10 +24,62 @@ import java.net.URL
 import java.security.MessageDigest
 object AppUpdater {
     private const val LIMIT = 157286400L
+    private const val PROMPT_PREFS = "fireblade_update_prompt"
     fun version(context: Context): Long = code(context.packageManager.getPackageInfo(context.packageName,0))
     @Suppress("DEPRECATION") private fun code(p: PackageInfo) = if(Build.VERSION.SDK_INT>=28)p.longVersionCode else p.versionCode.toLong()
     private fun file(context: Context) = File(File(context.cacheDir,"updates").apply { mkdirs() },"fireblade.apk")
-    fun ready(context: Context) = file(context).exists() && ConfigStore(context).availableRelease.isNotBlank()
+
+    private fun clearPending(context: Context) {
+        ConfigStore(context).availableRelease = ""
+        file(context).delete()
+        context.getSystemService(NotificationManager::class.java)?.cancel(36)
+        context.getSharedPreferences(PROMPT_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
+    // Android preserves SharedPreferences through an APK replacement. An old
+    // availableRelease flag is not proof that this phone still needs an update.
+    private fun pendingRelease(context: Context): JSONObject? {
+        val cached = ConfigStore(context).availableRelease
+        if (cached.isBlank()) return null
+        val release = try { JSONObject(cached) } catch (_: Exception) { null }
+        if (release == null || release.optString("id").isBlank() ||
+            release.optString("package_name") != context.packageName ||
+            !UpdateDecision.needsUpdate(version(context), release.optLong("version_code", -1L))
+        ) {
+            clearPending(context)
+            return null
+        }
+        return release
+    }
+
+    fun reconcileInstalledState(context: Context) {
+        pendingRelease(context)
+    }
+
+    fun ready(context: Context): Boolean {
+        val release = pendingRelease(context) ?: return false
+        val size = release.optLong("size_bytes", -1L)
+        val apk = file(context)
+        return size > 0 && apk.isFile && apk.length() == size
+    }
+
+    fun shouldPrompt(context: Context): Boolean {
+        if (!ready(context)) return false
+        val id = pendingRelease(context)?.optString("id").orEmpty()
+        val prefs = context.getSharedPreferences(PROMPT_PREFS, Context.MODE_PRIVATE)
+        return UpdateDecision.shouldShowPrompt(
+            id, prefs.getString("release", "").orEmpty(),
+            prefs.getLong("at", 0), System.currentTimeMillis()
+        )
+    }
+
+    fun recordPromptShown(context: Context) {
+        val release = pendingRelease(context) ?: return
+        context.getSharedPreferences(PROMPT_PREFS, Context.MODE_PRIVATE).edit()
+            .putString("release", release.optString("id"))
+            .putLong("at", System.currentTimeMillis()).apply()
+    }
+
     private fun report(config:ConfigStore, context:Context, release:JSONObject?, stage:String,message:String="") {
         try { DeviceApi.request(config,DeviceApi.devicePath(config)+"/update-status",JSONObject().put("release_id",release?.optString("id") ?: JSONObject.NULL).put("stage",stage).put("app_version_code",version(context)).put("message",message.take(300))) } catch (_:Exception) { }
     }
