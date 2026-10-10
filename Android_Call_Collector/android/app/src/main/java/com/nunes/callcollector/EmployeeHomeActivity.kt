@@ -99,6 +99,7 @@ class EmployeeHomeActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         selectedDayStart = dateStore.selectedDayStart()
+        AppUpdater.reconcileInstalledState(this)
         refresh()
         maybeShowMandatoryUpdate()
     }
