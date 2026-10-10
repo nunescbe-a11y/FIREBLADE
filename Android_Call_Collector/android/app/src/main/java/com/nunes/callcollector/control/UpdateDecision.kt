@@ -1,12 +1,13 @@
 package com.nunes.callcollector.control
 
 /**
- * PackageManager's installed version is authoritative. A new release may be
- * offered once for each installed-version/release pair; repeatedly reopening
- * Fireblade must never reopen the same installer prompt.
+ * The Android PackageManager version is authoritative for whether a release
+ * is needed. The automatic startup offer is once per release ID, regardless
+ * of intermediate installed versions, so a successful partial upgrade or an
+ * installer cancellation cannot cause the same popup on every app launch.
  *
- * A declined/cancelled update remains accessible from Advanced Admin and
- * the download-ready notification, without nagging on every app launch.
+ * An offered release remains reachable via Advanced Admin and the download
+ * notification. A different release ID is eligible for one new offer.
  */
 internal object UpdateDecision {
     fun needsUpdate(installedVersionCode: Long, releaseVersionCode: Long): Boolean =
@@ -14,12 +15,7 @@ internal object UpdateDecision {
 
     fun shouldShowPrompt(
         releaseId: String,
-        installedVersionCode: Long,
-        previousReleaseId: String,
-        previousInstalledVersionCode: Long
+        previouslyOfferedReleaseId: String
     ): Boolean =
-        releaseId.isNotBlank() && (
-            releaseId != previousReleaseId ||
-                installedVersionCode != previousInstalledVersionCode
-        )
+        releaseId.isNotBlank() && releaseId != previouslyOfferedReleaseId
 }
