@@ -125,7 +125,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
         setSelectedGroup(json.config.group_id);
       }
       if (json.status === "UNAVAILABLE") {
-        setError(json.error || "WhatsApp Bridge is unavailable");
+        setError("WhatsApp Bridge cannot be reached. Check that the bridge computer and secure tunnel are running, and that the production bridge URL is current. " + (json.error ? `Details: ${json.error}` : ""));
       } else if (json.group_error) {
         setError(json.group_error);
       }
@@ -177,7 +177,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
 
   const resetSession = async () => {
     const ok = window.confirm(
-      "Are you sure you want to reset Shane Sir's WhatsApp session?\n\nThis will clear any partial pairing state for fb_shane_assignments and generate a fresh QR code.\n\nNOTE: The 9:15 AM daily report session (fb_md) is isolated and will NOT be affected."
+      "Are you sure you want to reset Shane's WhatsApp session?\n\nThis will clear any partial pairing state for fb_shane_assignments and generate a fresh QR code.\n\nNOTE: The 9:15 AM daily report session (fb_md) is isolated and will NOT be affected."
     );
     if (!ok) return;
 
@@ -214,7 +214,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
       });
       const resJson = await res.json();
       if (!res.ok) throw new Error(resJson.error || "Could not save group");
-      setNotice(`Shane Sir WhatsApp group configured: ${resJson.group_name || selectedGroup}. Automatic dispatch is ENABLED.`);
+      setNotice(`Shane WhatsApp group configured: ${resJson.group_name || selectedGroup}. Automatic dispatch is ENABLED.`);
       await loadData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save group");
@@ -300,9 +300,9 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
       <div className="page-header">
         <div>
           <p className="eyebrow">Admin only • Fireblade Issue #16</p>
-          <h1>Admin → Shane Sir WhatsApp</h1>
+          <h1>Admin → Shane WhatsApp</h1>
           <p>
-            Dedicated WhatsApp Web connection (<code>fb_shane_assignments</code>) for Shane Sir&apos;s automated customer assignments to the Marketing WhatsApp group.
+            Dedicated WhatsApp Web connection (<code>fb_shane_assignments</code>) for Shane&apos;s automated customer assignments to the Marketing WhatsApp group.
             Isolated completely from the MD 09:15 daily pending report (<code>fb_md</code>).
           </p>
         </div>
@@ -322,8 +322,8 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
       {/* Warning Banners */}
       {data.status === "READY" && !isShaneNumberMatched && (
         <div className="error-banner" role="alert">
-          <strong>⚠️ Number Mismatch Warning:</strong> Connected WhatsApp number ({data.number}) does not match Shane Sir&apos;s official number ({SHANE_PHONE_CANONICAL}).
-          Automatic assignment delivery is paused until Shane Sir&apos;s correct number is linked.
+          <strong>⚠️ Number Mismatch Warning:</strong> Connected WhatsApp number ({data.number}) does not match Shane&apos;s official number ({SHANE_PHONE_CANONICAL}).
+          Automatic assignment delivery is paused until Shane&apos;s correct number is linked.
         </div>
       )}
 
@@ -346,7 +346,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
         {/* Panel 1: Connection & Live QR */}
         <section className="panel wa-connection">
           <div className="panel-heading">
-            <h2>Shane Sir Connection</h2>
+            <h2>Shane Connection</h2>
             <span className={`status-pill ${statusClass(data.status)}`}>{data.status || "UNKNOWN"}</span>
           </div>
 
@@ -358,7 +358,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
             <div style={{ margin: "10px 0" }}>
               <strong>Connected number:</strong> {data.number}{" "}
               {isShaneNumberMatched ? (
-                <span className="status-pill success">Verified Shane Sir</span>
+                <span className="status-pill success">Verified Shane</span>
               ) : (
                 <span className="status-pill warning">Mismatch</span>
               )}
@@ -371,10 +371,10 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
                 <span>Live WhatsApp Pairing QR</span>
                 <span>Refreshing in {pollCounter}s (Live)</span>
               </div>
-              <img src={data.qr_data_url} alt="Shane Sir WhatsApp connection QR code" />
+              <img src={data.qr_data_url} alt="Shane WhatsApp connection QR code" />
               <p style={{ marginTop: "12px", fontSize: "13px" }}>
                 <strong>How to scan:</strong><br />
-                1. Open WhatsApp on Shane Sir&apos;s phone (<strong>{SHANE_PHONE_CANONICAL}</strong>).<br />
+                1. Open WhatsApp on Shane&apos;s phone (<strong>{SHANE_PHONE_CANONICAL}</strong>).<br />
                 2. Tap <strong>Settings (or ⋮) → Linked Devices → Link a Device</strong>.<br />
                 3. Point camera at this live QR code.
               </p>
@@ -430,12 +430,12 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
 
           {data.status !== "READY" ? (
             <div className="empty-panel">
-              Scan the QR code above on Shane Sir&apos;s phone first. Once connected, groups from his account will appear here.
+              Scan the QR code above on Shane&apos;s phone first. Once connected, groups from his account will appear here.
             </div>
           ) : (
             <div style={{ display: "grid", gap: "14px", marginTop: "10px" }}>
               <label>
-                <span>Select Target Group from Shane Sir&apos;s WhatsApp:</span>
+                <span>Select Target Group from Shane&apos;s WhatsApp:</span>
                 <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}>
                   <option value="">Choose a WhatsApp group...</option>
                   {groups.map(g => (
@@ -465,7 +465,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
               </div>
 
               <p className="muted" style={{ fontSize: "12px" }}>
-                Selecting this group configures Shane Sir&apos;s Android app. When he taps <strong>Save, Assign & Send</strong>,
+                Selecting this group configures Shane&apos;s Android app. When he taps <strong>Save, Assign & Send</strong>,
                 customer details are posted directly to this group with genuine @mentions without any manual interaction.
               </p>
             </div>
@@ -487,7 +487,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
             <div style={{ padding: "14px", background: "var(--surface2)", borderRadius: "10px", border: "1px solid var(--line)" }}>
               <strong>1. Check WhatsApp Device Limit (Max 4)</strong>
               <p style={{ fontSize: "13px", color: "var(--muted)", margin: "8px 0" }}>
-                WhatsApp enforces a strict maximum of 4 linked devices per account. If Shane Sir has 4 active devices listed, WhatsApp immediately throws <strong>&quot;Unable to link&quot;</strong>.
+                WhatsApp enforces a strict maximum of 4 linked devices per account. If Shane has 4 active devices listed, WhatsApp immediately throws <strong>&quot;Unable to link&quot;</strong>.
               </p>
               <span style={{ fontSize: "12px", color: "var(--primary)" }}>
                 Fix: Open phone → Linked Devices → Tap any unused session → Log Out.
@@ -529,12 +529,12 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
         </div>
 
         <p className="muted" style={{ marginBottom: "16px" }}>
-          Every employee assigned by Shane Sir must exist in the target WhatsApp group with a registered phone number.
+          Every employee assigned by Shane must exist in the target WhatsApp group with a registered phone number.
           If any assigned employee is missing or unmatchable, Fireblade will safely hold the assignment in queue to prevent posting without genuine @mentions.
         </p>
 
         {data.status !== "READY" ? (
-          <div className="empty-panel">Connect Shane Sir&apos;s WhatsApp to inspect group members and @mention status.</div>
+          <div className="empty-panel">Connect Shane&apos;s WhatsApp to inspect group members and @mention status.</div>
         ) : !members?.roster?.length ? (
           <div className="empty-panel">No Marketing employees or group members loaded yet. Select a destination group above.</div>
         ) : (
@@ -601,7 +601,7 @@ export default function AdminShaneWhatsAppClient({ user }: { user: SessionUser }
         </div>
 
         <p className="muted" style={{ marginBottom: "14px" }}>
-          Real-time audit log of all Shane Sir customer assignment messages dispatched to the WhatsApp group.
+          Real-time audit log of all Shane customer assignment messages dispatched to the WhatsApp group.
           Failed deliveries can be retried safely. Uncertain messages (timed out) require manual WhatsApp check before retry to prevent duplicate posts.
         </p>
 
