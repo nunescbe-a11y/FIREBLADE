@@ -76,52 +76,90 @@ export function formatShaneGroupAssignmentText(detail, employeeMentions) {
   return lines.join('\n');
 }
 
+// Only a real WhatsApp user JID can become a native group @mention.
+// A visible "@name" string by itself does not notify the selected person.
+export function validMentionJid(value) {
+  const jid = String(value || '').trim();
+  return /^[0-9]{8,20}@(c\.us|lid)$/.test(jid) ? jid : null;
+}
+
 export function resolveEmployeeMentions(detailEvents, empMap, participants) {
   const employeeMentions = [];
   const mentionJids = [];
-
   const safeParticipants = Array.isArray(participants) ? participants : [];
+  const selected = new Set();
 
   for (const ev of detailEvents) {
-    const empId = ev.assigned_to_employee_id;
+    const empId = String(ev.assigned_to_employee_id || '').trim();
+    if (!empId || selected.has(empId)) continue;
+    selected.add(empId);
     const empName = empMap.get(empId) || empId;
-    const rawPhone = String(ev.whatsapp_recipient_number || '').replace(/\D/g, '');
-    const phone10 = rawPhone.slice(-10);
+    const selectedPhone = String(ev.whatsapp_recipient_number || '').replace(/\D/g, '').slice(-10);
 
-    const matched = safeParticipants.find(p => {
-      const pNum = String(p.number || '').replace(/\D/g, '');
-      const pUser = String(p.user || '').replace(/\D/g, '');
-      const p10 = pNum.slice(-10) || pUser.slice(-10);
-      return phone10 && p10 && (p10 === phone10);
-    });
+    // @lid user digits are *not* a phone number. Match against resolved phone
+    // metadata or an actual @c.us PN alias only; never match LID digits.
+    const matches = selectedPhone ? safeParticipants.filter(p => {
+      const groupJid = validMentionJid(p?.id);
+      if (!groupJid) return false;
+      const phoneCandidates = [
+        p?.number,
+        p?.phoneNumberJid,
+        groupJid.endsWith('@c.us') ? groupJid : null,
+      ];
+      return phoneCandidates.some(phone => {
+        const digits = String(phone || '').replace(/\D/g, '');
+        return digits.length >= 10 && digits.slice(-10) === selectedPhone;
+      });
+    }) : [];
 
-    if (matched) {
-      if (matched.id) mentionJids.push(matched.id);
-      if (matched.phoneNumberJid && matched.phoneNumberJid !== matched.id) {
-        mentionJids.push(matched.phoneNumberJid);
-      }
+    // Multiple *different* participants resolving to one number are unsafe.
+    const distinct = new Map(matches.map(p => [validMentionJid(p.id), p]));
+    if (distinct.size !== 1) {
       employeeMentions.push({
-        employeeId: empId,
-        name: empName,
-        tagText: `@${matched.user}`,
-        participantId: matched.id,
-        matched: true,
+        employeeId: empId, name: empName, tagText: null,
+        participantId: null, matched: false,
+        reason: !selectedPhone ? 'EMPLOYEE_PHONE_MISSING'
+          : matches.length ? 'AMBIGUOUS_GROUP_PARTICIPANT'
+            : 'EMPLOYEE_NOT_RESOLVED_IN_GROUP',
       });
-    } else {
-      employeeMentions.push({
-        employeeId: empId,
-        name: empName,
-        tagText: null,
-        participantId: null,
-        matched: false,
-      });
+      continue;
     }
+
+    const [participantId] = distinct.keys();
+    if (!participantId) {
+      employeeMentions.push({
+        employeeId: empId, name: empName, tagText: null,
+        participantId: null, matched: false, reason: 'INVALID_PARTICIPANT_JID',
+      });
+      continue;
+    }
+    mentionJids.push(participantId);
+    employeeMentions.push({
+      employeeId: empId,
+      name: empName,
+      tagText: '@' + participantId.split('@')[0],
+      participantId,
+      matched: true,
+    });
   }
 
   return {
     employeeMentions,
     mentionJids: [...new Set(mentionJids)],
   };
+}
+
+export function hasCompleteEmployeeMentions(detailEvents, employeeMentions, mentionJids) {
+  const assigned = [...new Set(detailEvents.map(e => String(e.assigned_to_employee_id || '').trim()).filter(Boolean))];
+  const resolved = new Map(employeeMentions.filter(m =>
+    m.matched && validMentionJid(m.participantId)
+  ).map(m => [m.employeeId, m.participantId]));
+  const uniqueJids = new Set(mentionJids.filter(validMentionJid));
+  // Don't mistake an empty recipients list or a matching *name* for an @mention.
+  return assigned.length > 0 &&
+    assigned.every(id => resolved.has(id)) &&
+    uniqueJids.size === assigned.length &&
+    [...resolved.values()].every(id => uniqueJids.has(id));
 }
 
 export function shouldDeliverEvent(event, activationTimestampMs) {
