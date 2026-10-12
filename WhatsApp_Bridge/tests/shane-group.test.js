@@ -7,6 +7,8 @@ import {
   formatIstDateTime,
   formatShaneGroupAssignmentText,
   resolveEmployeeMentions,
+  hasCompleteEmployeeMentions,
+  validMentionJid,
   shouldDeliverEvent,
   filterNewDetailEvents,
 } from '../shane-group-logic.js';
@@ -124,11 +126,70 @@ describe('Shane Group Assignment Logic Tests', () => {
     assert.equal(employeeMentions[2].tagText, null);
     assert.equal(employeeMentions[2].name, 'Unknown Employee');
 
-    // Check unique mention JIDs
-    assert.ok(mentionJids.includes('919087763000@c.us'));
-    assert.ok(mentionJids.includes('25481729019283@lid'));
-    assert.ok(mentionJids.includes('916380371372@c.us'));
-    assert.equal(mentionJids.length, 3);
+    // Exactly one native group participant JID per employee, including LID.
+    assert.deepEqual(mentionJids, ['919087763000@c.us', '25481729019283@lid']);
+    assert.equal(hasCompleteEmployeeMentions(detailEvents, employeeMentions, mentionJids), false);
+    assert.equal(hasCompleteEmployeeMentions(detailEvents.slice(0, 2), employeeMentions.slice(0, 2), mentionJids), true);
+  });
+
+
+  test('empty participant ID can never silently turn a group message into an untagged SENT', () => {
+    const assigned = [{ assigned_to_employee_id: 'EMP-004', whatsapp_recipient_number: '6380371372' }];
+    const { employeeMentions, mentionJids } = resolveEmployeeMentions(
+      assigned, new Map([['EMP-004', 'Yazhini']]),
+      [{ id: '', user: '', number: '916380371372', name: 'Yazhini' }],
+    );
+    assert.deepEqual(mentionJids, []);
+    assert.equal(employeeMentions[0].matched, false);
+    assert.equal(hasCompleteEmployeeMentions(assigned, employeeMentions, mentionJids), false);
+    assert.equal(validMentionJid(''), null);
+    assert.equal(validMentionJid('120363413977876124@g.us'), null);
+    assert.equal(validMentionJid('25481729019283@lid'), '25481729019283@lid');
+  });
+
+  test('LID member must have a resolved phone alias matching the selected employee', () => {
+    const assigned = [{ assigned_to_employee_id: 'EMP-004', whatsapp_recipient_number: '6380371372' }];
+    const groupMembers = [
+      { id: '25481729019283@lid', user: '25481729019283', number: '',
+        phoneNumberJid: null, name: 'Yazhini' },
+    ];
+    const notResolved = resolveEmployeeMentions(
+      assigned, new Map([['EMP-004', 'Yazhini']]), groupMembers,
+    );
+    assert.equal(notResolved.employeeMentions[0].matched, false);
+    assert.equal(hasCompleteEmployeeMentions(assigned, notResolved.employeeMentions, notResolved.mentionJids), false);
+
+    const resolved = resolveEmployeeMentions(assigned,
+      new Map([['EMP-004', 'Yazhini']]),
+      [{ ...groupMembers[0], phoneNumberJid: '916380371372@c.us' }]);
+    assert.equal(resolved.employeeMentions[0].matched, true);
+    assert.deepEqual(resolved.mentionJids, ['25481729019283@lid']);
+    assert.equal(hasCompleteEmployeeMentions(assigned, resolved.employeeMentions, resolved.mentionJids), true);
+  });
+
+  test('duplicate or ambiguous WhatsApp group JIDs are not a verified mention', () => {
+    const assigned = [{ assigned_to_employee_id: 'EMP-004', whatsapp_recipient_number: '6380371372' }];
+    const members = [
+      { id: '25481729019283@lid', phoneNumberJid: '916380371372@c.us' },
+      { id: '919999999999@c.us', number: '916380371372' },
+    ];
+    const plan = resolveEmployeeMentions(assigned, new Map([['EMP-004', 'Yazhini']]), members);
+    assert.equal(plan.employeeMentions[0].matched, false);
+    assert.equal(plan.employeeMentions[0].reason, 'AMBIGUOUS_GROUP_PARTICIPANT');
+    assert.equal(hasCompleteEmployeeMentions(assigned, plan.employeeMentions, plan.mentionJids), false);
+  });
+
+  test('Shane bridge fails closed before sending with empty native mentions', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    assert.match(src, /if \(!mentionsComplete\)/);
+    assert.match(src, /hasCompleteEmployeeMentions\(newEvents, employeeMentions, mentionJids\)/);
+    assert.match(src, /mentions: mentionJids/);
+    assert.match(src, /const deliveryStatus = mentionVerified \? 'SENT' : 'UNCERTAIN'/);
+    assert.match(src, /await s\.client\.getChatById\(groupId\)/);
+    assert.match(src, /WAWebApiContact/);
+    // Regression: never call the direct employee-chat send endpoint for group assignments.
+    assert.match(src, /s\.client\.sendMessage\(config\.groupId, messageText/);
   });
 
   test('formatShaneGroupAssignmentText formats all customer fields correctly', () => {
