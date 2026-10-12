@@ -55,6 +55,26 @@ object ShaneMarketingApi {
         return if (!cachedJson.isNullOrBlank()) parseRecipients(cachedJson) else emptyList()
     }
 
+    fun isGroupModeEnabled(context: Context): Boolean {
+        val cachedJson = getCachedJson(context) ?: return false
+        return try {
+            JSONObject(cachedJson).optBoolean("group_mode_enabled", false)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun getGroupName(context: Context): String? {
+        val cachedJson = getCachedJson(context) ?: return null
+        return try {
+            val obj = JSONObject(cachedJson)
+            val name = obj.optString("group_name", "").trim()
+            if (name.isNotEmpty()) name else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun getCachedJson(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_CACHE_JSON, null)

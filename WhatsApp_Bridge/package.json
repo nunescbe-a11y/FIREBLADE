@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test tests/*.test.js",
     "patch:wwebjs": "node scripts/patch-wwebjs-navigation.cjs",
     "postinstall": "node scripts/patch-wwebjs-navigation.cjs"
   },

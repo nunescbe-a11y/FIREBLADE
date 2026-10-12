@@ -220,8 +220,13 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             return
         }
 
-        b.tvMarketingStatus.text =
+        val groupModeEnabled = ShaneMarketingApi.isGroupModeEnabled(this)
+        val groupName = ShaneMarketingApi.getGroupName(this) ?: "Marketing Group"
+        b.tvMarketingStatus.text = if (groupModeEnabled) {
+            "Choose employees to assign in Fireblade. Assignments will be posted automatically to $groupName with @mentions."
+        } else {
             "Choose employees to assign in Fireblade. WhatsApp opens for selected employees with a WhatsApp number."
+        }
 
         marketingRecipients.forEach { recipient ->
             val row = layoutInflater.inflate(
@@ -491,9 +496,22 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 callStartedAtEpochMs = call.startedAtEpochMs
             )
 
+            val groupModeEnabled = ShaneMarketingApi.isGroupModeEnabled(this@ShaneCallDetailActivity)
+            val groupName = ShaneMarketingApi.getGroupName(this@ShaneCallDetailActivity) ?: "Marketing Group"
+
             if (selectedRecipients.isEmpty()) {
                 // No in-app assignment without an explicitly chosen recipient.
                 openWhatsApp(message)
+            } else if (groupModeEnabled) {
+                // Automated WhatsApp Group assignment mode:
+                // Assignment events are queued and synced to backend/bridge.
+                // The bridge posts customer details to the common Marketing group with @mention.
+                Toast.makeText(
+                    this@ShaneCallDetailActivity,
+                    "Assigned to ${selectedRecipients.size} employee(s) in Fireblade. Sending to $groupName...",
+                    Toast.LENGTH_LONG
+                ).show()
+                finish()
             } else {
                 val whatsappRecipients = selectedRecipients.filter {
                     it.available && it.phoneNumber.isNotBlank()

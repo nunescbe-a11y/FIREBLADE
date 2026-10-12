@@ -1,5 +1,6 @@
 """Authenticated device control. The V1 call ingestion endpoint remains independent."""
 import hashlib
+import json
 import secrets
 from datetime import datetime, timezone
 from typing import Optional, Literal
@@ -123,6 +124,8 @@ class AssignmentReceipt(BaseModel):
 
 
 def install_routes(app, db, health_model):
+    import json
+
     @app.post("/api/v3/enroll")
     def enroll(body: Enrollment):
         token = secrets.token_urlsafe(32)
@@ -192,6 +195,7 @@ def install_routes(app, db, health_model):
         device_id: str,
         x_fireblade_token: Optional[str] = Header(default=None)
     ):
+        import json
         device_id = device_id.strip().upper()
         authorize(db, device_id, x_fireblade_token)
 
@@ -346,7 +350,30 @@ def install_routes(app, db, health_model):
                 "available": bool(phone_number)
             })
 
-        return {"department": "MARKETING", "employees": recipients}
+        group_mode_enabled = False
+        target_group_name = None
+        try:
+            _, shane_conn = db(
+                "GET",
+                "fireblade_whatsapp_connections?employee_id=eq.EMP-017&limit=1"
+            )
+            if shane_conn and len(shane_conn) > 0:
+                conn_status = str(shane_conn[0].get("status") or "")
+                meta_raw = str(shane_conn[0].get("last_error") or "")
+                if conn_status == "CONNECTED" and meta_raw:
+                    meta = json.loads(meta_raw)
+                    if meta.get("enabled") and meta.get("group_id"):
+                        group_mode_enabled = True
+                        target_group_name = str(meta.get("group_name") or "Marketing Group")
+        except Exception:
+            group_mode_enabled = False
+
+        return {
+            "department": "MARKETING",
+            "employees": recipients,
+            "group_mode_enabled": group_mode_enabled,
+            "group_name": target_group_name
+        }
 
     @app.get("/api/v3/devices/{device_id}/commands")
     def commands(device_id: str, x_fireblade_token: Optional[str] = Header(default=None)):

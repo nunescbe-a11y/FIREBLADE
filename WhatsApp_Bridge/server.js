@@ -5,6 +5,15 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import pkg from 'whatsapp-web.js';
+import {
+  SHANE_SESSION_KEY,
+  SHANE_PHONE_NUMBER_CANONICAL,
+  isAuthorizedShaneSender,
+  formatShaneGroupAssignmentText,
+  resolveEmployeeMentions,
+  shouldDeliverEvent,
+  filterNewDetailEvents,
+} from './shane-group-logic.js';
 
 const { Client, LocalAuth, MessageMedia } = pkg;
 const app = express();
@@ -100,6 +109,10 @@ async function reconcileSession(s) {
       s.error = null;
       // FIREBLADE_MD_RECONCILE_CATCHUP
       if (s.key === 'fb_md') setTimeout(() => void maybeCatchupPendingGroupReport('WHATSAPP_RECONCILED'), 1200);
+      if (s.key === shaneSessionKey) {
+        setTimeout(() => void processPendingShaneGroupAssignments('WHATSAPP_RECONCILED'), 1200);
+        setTimeout(() => void syncShaneConnectionStatus(s), 500);
+      }
       console.log(`[${s.key}] READY (reconciled)`);
     }
   } catch (error) {
@@ -939,6 +952,347 @@ const pendingReportRetryTimer = setInterval(
 );
 pendingReportRetryTimer.unref?.();
 // FIREBLADE_MD_GROUP_REPORT_END
+// FIREBLADE_SHANE_GROUP_ASSIGNMENTS_START
+const shaneSessionKey = SHANE_SESSION_KEY;
+const shaneGroupConfigPath = resolve(process.env.FIREBLADE_SHANE_GROUP_CONFIG || './secure/shane-assignment-group.json');
+const shaneDeliveryStateDir = resolve(process.env.FIREBLADE_SHANE_DELIVERY_STATE_DIR || './secure/shane-delivery-state');
+
+async function syncShaneConnectionStatus(s) {
+  try {
+    const isReady = s?.status === 'READY';
+    const num = isReady && s?.number ? String(s.number).replace(/\D/g, '') : null;
+    await supabaseRequest('fireblade_whatsapp_connections?employee_id=eq.EMP-017', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: isReady ? 'CONNECTED' : (s?.status === 'STARTING' ? 'STARTING' : (s?.status === 'QR_READY' ? 'QR_READY' : 'DISCONNECTED')),
+        whatsapp_number: num,
+        last_seen_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  } catch (err) {
+    console.warn(`[shane-group] syncShaneConnectionStatus skipped/failed: ${errorMessage(err)}`);
+  }
+}
+
+async function readShaneGroupConfig() {
+  const config = await readJsonFile(shaneGroupConfigPath);
+  if (!config) return null;
+  const sessionKey = cleanKey(config.session_key || shaneSessionKey);
+  const groupId = String(config.group_id || '').trim();
+  const groupName = String(config.group_name || '').trim();
+  const enabled = Boolean(config.enabled);
+  const activationTimestampMs = Number(config.activation_timestamp_ms || 0);
+  const allowedSenderNumbers = Array.isArray(config.allowed_sender_numbers)
+    ? config.allowed_sender_numbers.map(String)
+    : [SHANE_PHONE_NUMBER_CANONICAL, `91${SHANE_PHONE_NUMBER_CANONICAL}`];
+  if (!sessionKey || !groupId.endsWith('@g.us')) return null;
+  return {
+    sessionKey,
+    groupId,
+    groupName,
+    enabled,
+    activationTimestampMs,
+    allowedSenderNumbers,
+    configuredAt: config.configured_at || null,
+  };
+}
+
+async function saveShaneGroupConfig(config) {
+  await mkdir(resolve(shaneGroupConfigPath, '..'), { recursive: true }).catch(() => {});
+  await writeFile(shaneGroupConfigPath, JSON.stringify(config, null, 2), 'utf8');
+
+  try {
+    const metaPayload = {
+      group_id: config.group_id,
+      group_name: config.group_name,
+      enabled: config.enabled,
+      activation_timestamp_ms: config.activation_timestamp_ms,
+    };
+    await supabaseRequest('fireblade_whatsapp_connections?employee_id=eq.EMP-017', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        last_error: JSON.stringify(metaPayload),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  } catch (syncErr) {
+    console.warn(`[shane-group] Supabase sync of group config skipped/failed: ${errorMessage(syncErr)}`);
+  }
+}
+
+function shaneDeliveryStatePath(detailId) {
+  return join(shaneDeliveryStateDir, `shane-delivery-${detailId}.json`);
+}
+
+async function readShaneDeliveryState(detailId) {
+  return readJsonFile(shaneDeliveryStatePath(detailId));
+}
+
+async function writeShaneDeliveryState(detailId, state) {
+  await mkdir(shaneDeliveryStateDir, { recursive: true });
+  await writeFile(shaneDeliveryStatePath(detailId), JSON.stringify(state, null, 2), 'utf8');
+}
+
+async function listShaneSessionGroups(s) {
+  if (!s?.client?.pupPage) throw new Error('Shane WhatsApp browser page is not available');
+  const groups = await s.client.pupPage.evaluate(() => {
+    const widText = (wid) => {
+      try {
+        if (!wid) return '';
+        if (typeof wid === 'string') return wid;
+        if (typeof wid._serialized === 'string') return wid._serialized;
+        if (typeof wid.$1 === 'string') return wid.$1;
+        if (typeof wid.user === 'string' && typeof wid.server === 'string') return `${wid.user}@${wid.server}`;
+      } catch {}
+      return '';
+    };
+
+    const collections = window.require('WAWebCollections');
+    const chats = collections?.Chat?.getModelsArray?.() || [];
+
+    return chats.map(chat => {
+      try {
+        const id = widText(chat?.id);
+        if (!id || !id.endsWith('@g.us')) return null;
+
+        const name = String(
+          chat?.name ||
+          chat?.formattedTitle ||
+          chat?.contact?.name ||
+          chat?.contact?.pushname ||
+          id
+        ).trim();
+
+        return { id, name: name || id };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+  });
+
+  return (Array.isArray(groups) ? groups : [])
+    .filter(group => String(group?.id || '').endsWith('@g.us'))
+    .map(group => ({ id: String(group.id), name: String(group.name || group.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getGroupParticipants(s, groupId) {
+  if (!s?.client?.pupPage) throw new Error('Shane WhatsApp browser page is not available');
+  const participants = await s.client.pupPage.evaluate((targetGroupId) => {
+    const widText = (wid) => {
+      try {
+        if (!wid) return '';
+        if (typeof wid === 'string') return wid;
+        if (typeof wid._serialized === 'string') return wid._serialized;
+        if (typeof wid.$1 === 'string') return wid.$1;
+        if (typeof wid.user === 'string' && typeof wid.server === 'string') return `${wid.user}@${wid.server}`;
+      } catch {}
+      return '';
+    };
+
+    const collections = window.require('WAWebCollections');
+    const chat = collections?.Chat?.get?.(targetGroupId);
+    if (!chat) return [];
+
+    const rawParticipants = chat.groupMetadata?.participants?.getModelsArray?.() || [];
+    return rawParticipants.map(p => {
+      try {
+        const id = widText(p?.id);
+        const user = typeof p?.id?.user === 'string' ? p.id.user : (id.split('@')[0] || '');
+        const contact = p?.contact || collections?.Contact?.get?.(id);
+        const phoneWid = p?.phoneNumber || contact?.phoneNumber;
+        const phoneUser = phoneWid ? (typeof phoneWid === 'string' ? phoneWid.split('@')[0] : (phoneWid.user || '')) : '';
+        const number = phoneUser || contact?.number || (id.endsWith('@c.us') ? user : '');
+        const pushname = contact?.pushname || '';
+        const name = contact?.name || '';
+        return {
+          id,
+          user,
+          number: String(number || '').replace(/\D/g, ''),
+          phoneNumberJid: phoneWid ? widText(phoneWid) : (id.endsWith('@c.us') ? id : null),
+          name: name || pushname || user,
+          isAdmin: Boolean(p?.isAdmin || p?.isSuperAdmin)
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+  }, groupId);
+
+  return Array.isArray(participants) ? participants : [];
+}
+
+let isProcessingShaneAssignments = false;
+
+async function processPendingShaneGroupAssignments(reason) {
+  if (isProcessingShaneAssignments) return;
+  isProcessingShaneAssignments = true;
+
+  try {
+    const config = await readShaneGroupConfig();
+    if (!config || !config.enabled) return;
+
+    const s = stateFor(config.sessionKey);
+    if (s.status !== 'READY' || !s.client) return;
+
+    const connectedNumber = String(s.number || '').replace(/\D/g, '');
+    if (!isAuthorizedShaneSender(connectedNumber, config.allowedSenderNumbers)) {
+      console.warn(`[shane-group] Connected session number ${connectedNumber} does not match Shane Sir's authorized number. Delivery halted.`);
+      return;
+    }
+
+    const cutoffEpoch = config.activationTimestampMs || 0;
+    if (cutoffEpoch <= 0) {
+      return;
+    }
+
+    const events = await supabaseRequest(
+      `fireblade_shane_assignment_events?event_type=eq.ASSIGNED&occurred_at_epoch_ms=gte.${cutoffEpoch}&order=occurred_at_epoch_ms.asc&limit=30`,
+      { method: 'GET' }
+    );
+
+    if (!Array.isArray(events) || events.length === 0) return;
+
+    const validEvents = events.filter(e => shouldDeliverEvent(e, cutoffEpoch));
+    if (validEvents.length === 0) return;
+
+    const eventsByDetail = new Map();
+    for (const ev of validEvents) {
+      const detailId = ev.detail_id;
+      if (!detailId) continue;
+      if (!eventsByDetail.has(detailId)) eventsByDetail.set(detailId, []);
+      eventsByDetail.get(detailId).push(ev);
+    }
+
+    let participants = null;
+
+    for (const [detailId, detailEvents] of eventsByDetail.entries()) {
+      const existingState = await readShaneDeliveryState(detailId);
+      const newEvents = filterNewDetailEvents(detailEvents, existingState);
+
+      if (newEvents.length === 0) {
+        continue;
+      }
+
+      if (existingState && existingState.status === 'SENDING') {
+        const startedAgoMs = Date.now() - new Date(existingState.started_at || 0).getTime();
+        if (startedAgoMs < 30000) continue;
+      }
+
+      const details = await supabaseRequest(
+        `fireblade_shane_call_details?detail_id=eq.${encodeURIComponent(detailId)}&limit=1`,
+        { method: 'GET' }
+      );
+      if (!Array.isArray(details) || details.length === 0) {
+        console.warn(`[shane-group] Detail ${detailId} not found in database. Skipping.`);
+        continue;
+      }
+      const detail = details[0];
+
+      const eventIds = newEvents.map(e => e.event_id);
+      let state = {
+        detail_id: detailId,
+        event_ids: eventIds,
+        status: 'SENDING',
+        group_id: config.groupId,
+        group_name: config.groupName,
+        sender_number: connectedNumber,
+        started_at: new Date().toISOString(),
+        last_reason: reason,
+      };
+      await writeShaneDeliveryState(detailId, state);
+
+      if (!participants) {
+        participants = await getGroupParticipants(s, config.groupId);
+      }
+
+      const assignedEmpIds = [...new Set(newEvents.map(e => e.assigned_to_employee_id).filter(Boolean))];
+      const empQuery = assignedEmpIds.map(id => `employee_id.eq.${encodeURIComponent(id)}`).join(',');
+      const emps = await supabaseRequest(
+        `fireblade_employees?select=employee_id,employee_name&or=(${empQuery})`,
+        { method: 'GET' }
+      );
+      const empMap = new Map((Array.isArray(emps) ? emps : []).map(e => [e.employee_id, e.employee_name]));
+
+      const { employeeMentions, mentionJids } = resolveEmployeeMentions(newEvents, empMap, participants);
+      const messageText = formatShaneGroupAssignmentText(detail, employeeMentions);
+
+      console.log(`[shane-group] Sending assignment detail=${detailId} to group=${config.groupName} with ${mentionJids.length} mentions...`);
+      try {
+        const sentMsg = await Promise.race([
+          s.client.sendMessage(config.groupId, messageText, {
+            mentions: mentionJids,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Send message timed out after 25s')), 25000)),
+        ]);
+
+        const providerMessageId = sentMsg?.id?._serialized || null;
+        const sentAt = new Date().toISOString();
+
+        state = {
+          ...state,
+          status: 'SENT',
+          provider_message_id: providerMessageId,
+          sent_at: sentAt,
+          updated_at: sentAt,
+          employee_mentions: employeeMentions,
+          event_ids: [...new Set([...(existingState?.event_ids || []), ...eventIds])],
+        };
+        await writeShaneDeliveryState(detailId, state);
+
+        try {
+          await supabaseRequest('fireblade_whatsapp_messages', {
+            method: 'POST',
+            body: JSON.stringify({
+              direction: 'OUTBOUND',
+              sender_number: connectedNumber,
+              recipient_number: config.groupId,
+              message_type: 'SHANE_GROUP_ASSIGNMENT',
+              provider_message_id: providerMessageId,
+              status: 'SENT',
+              payload: {
+                detail_id: detailId,
+                event_ids: eventIds,
+                assigned_employee_ids: assignedEmpIds,
+                mentions: mentionJids,
+              },
+            }),
+          });
+        } catch (auditErr) {
+          console.warn(`[shane-group] Audit log to Supabase skipped/failed: ${errorMessage(auditErr)}`);
+        }
+
+        console.log(`[shane-group] Successfully posted assignment detail=${detailId} to ${config.groupName}! Provider msg: ${providerMessageId}`);
+      } catch (sendErr) {
+        const errStr = errorMessage(sendErr);
+        const isTimeout = /timed? ?out/i.test(errStr);
+        state = {
+          ...state,
+          status: isTimeout ? 'UNCERTAIN_TIMEOUT' : 'FAILED',
+          error: errStr,
+          updated_at: new Date().toISOString(),
+        };
+        await writeShaneDeliveryState(detailId, state);
+        console.error(`[shane-group] Send failed for detail=${detailId}: ${errStr}`);
+      }
+
+      await sleep(2000);
+    }
+  } catch (error) {
+    console.error(`[shane-group] processPendingShaneGroupAssignments error: ${errorMessage(error)}`);
+  } finally {
+    isProcessingShaneAssignments = false;
+  }
+}
+
+const shaneAssignmentsTimer = setInterval(
+  () => void processPendingShaneGroupAssignments('PERIODIC_POLL'),
+  5000,
+);
+shaneAssignmentsTimer.unref?.();
+// FIREBLADE_SHANE_GROUP_ASSIGNMENTS_END
+
 app.get('/health', (req, res) => res.json({ ok: true, service: 'Fireblade Gen 2 WhatsApp Bridge', sessions: sessions.size, browser: browserExecutablePath ? 'SYSTEM_CHROMIUM' : 'PUPPETEER_DEFAULT' }));
 app.get('/sessions/:key/status', (req, res) => {
   const s = stateFor(cleanKey(req.params.key));
@@ -1058,8 +1412,152 @@ app.post('/automation/pending-group-report', async (req, res) => {
   }
 });
 // FIREBLADE_MD_GROUP_REPORT_ROUTES_END
+// FIREBLADE_SHANE_GROUP_ROUTES_START
+app.get('/management/shane-whatsapp/status', async (req, res) => {
+  try {
+    const s = stateFor(shaneSessionKey);
+    const config = await readShaneGroupConfig();
+    const connectedNumber = String(s.number || '').replace(/\D/g, '');
+    const isShaneNumber = connectedNumber
+      ? [SHANE_PHONE_NUMBER_CANONICAL, `91${SHANE_PHONE_NUMBER_CANONICAL}`].some(n => connectedNumber.endsWith(n.slice(-10)))
+      : false;
+    res.json({
+      ok: true,
+      status: s.status,
+      number: s.number,
+      qr_data_url: s.qrDataUrl,
+      error: s.error,
+      session_key: shaneSessionKey,
+      config: config || null,
+      is_shane_number: isShaneNumber,
+    });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.post('/management/shane-whatsapp/start', async (req, res) => {
+  try {
+    const s = await startSession(shaneSessionKey);
+    const config = await readShaneGroupConfig();
+    res.json({
+      ok: true,
+      status: s.status,
+      number: s.number,
+      qr_data_url: s.qrDataUrl,
+      error: s.error,
+      session_key: shaneSessionKey,
+      config: config || null,
+    });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.get('/management/shane-whatsapp/groups', async (req, res) => {
+  const s = stateFor(shaneSessionKey);
+  if (s.status !== 'READY' || !s.client) {
+    return res.status(409).json({ error: 'Shane WhatsApp session is not ready' });
+  }
+  try {
+    const groups = await listShaneSessionGroups(s);
+    res.json({ ok: true, groups });
+  } catch (error) {
+    const message = errorMessage(error);
+    console.warn(`[shane-group] GROUP_LIST_FAILED: ${message}`);
+    res.status(502).json({ error: message });
+  }
+});
+
+app.get('/management/shane-whatsapp/group-members', async (req, res) => {
+  const s = stateFor(shaneSessionKey);
+  if (s.status !== 'READY' || !s.client) {
+    return res.status(409).json({ error: 'Shane WhatsApp session is not ready' });
+  }
+  try {
+    const groupId = String(req.query?.group_id || '').trim();
+    if (!groupId.endsWith('@g.us')) {
+      return res.status(400).json({ error: 'Invalid WhatsApp group ID' });
+    }
+    const participants = await getGroupParticipants(s, groupId);
+    res.json({ ok: true, group_id: groupId, participants });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.post('/management/shane-whatsapp/group', async (req, res) => {
+  const s = stateFor(shaneSessionKey);
+  if (s.status !== 'READY' || !s.client) {
+    return res.status(409).json({ error: 'Shane WhatsApp session is not ready' });
+  }
+
+  try {
+    const requestedId = String(req.body?.group_id || '').trim();
+    if (!requestedId.endsWith('@g.us')) {
+      return res.status(400).json({ error: 'Invalid WhatsApp group ID' });
+    }
+
+    const availableGroups = await listShaneSessionGroups(s);
+    const selected = availableGroups.find(group => group.id === requestedId);
+    if (!selected) {
+      return res.status(404).json({ error: 'Selected WhatsApp group is not available on Shane account' });
+    }
+
+    const nowEpoch = Date.now();
+    const config = {
+      session_key: shaneSessionKey,
+      group_id: requestedId,
+      group_name: String(selected.name || 'Marketing Group'),
+      enabled: req.body?.enabled !== false,
+      activation_timestamp_ms: nowEpoch,
+      allowed_sender_numbers: [SHANE_PHONE_NUMBER_CANONICAL, `91${SHANE_PHONE_NUMBER_CANONICAL}`],
+      configured_at: new Date().toISOString(),
+    };
+
+    await saveShaneGroupConfig(config);
+
+    res.json({
+      ok: true,
+      group_id: config.group_id,
+      group_name: config.group_name,
+      enabled: config.enabled,
+      activation_timestamp_ms: config.activation_timestamp_ms,
+    });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.post('/management/shane-whatsapp/toggle', async (req, res) => {
+  try {
+    const config = await readShaneGroupConfig();
+    if (!config) {
+      return res.status(404).json({ error: 'Shane group is not configured yet' });
+    }
+    config.enabled = Boolean(req.body?.enabled);
+    await saveShaneGroupConfig(config);
+    res.json({ ok: true, enabled: config.enabled });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.post('/automation/shane-group-assignments', async (req, res) => {
+  try {
+    void processPendingShaneGroupAssignments('ON_DEMAND_TRIGGER');
+    res.json({ ok: true, status: 'TRIGGERED' });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+// FIREBLADE_SHANE_GROUP_ROUTES_END
 app.post('/sessions/:key/reset', async (req, res) => {
-  const s = stateFor(cleanKey(req.params.key));
+  const targetKey = cleanKey(req.params.key);
+  if (targetKey === 'fb_md') {
+    return res.status(403).json({ error: 'fb_md session is protected and cannot be reset' });
+  }
+  const s = stateFor(targetKey);
   await safeDestroySessionClient(s);
   try {
     await rm(localSessionPath(s.key), { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });

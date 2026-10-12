@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -584,6 +585,45 @@ class DeviceApiTests(unittest.TestCase):
             )
             self.assertEqual(assigned.status_code, 200, assigned.text)
             self.assertEqual(writes[0]["assigned_to_employee_id"], "TEST-SHANE-001")
+            self.assertFalse(recipients.json().get("group_mode_enabled"))
+
+    def test_shane_marketing_recipients_group_mode_enabled(self):
+        def mock_db(method, path, *args, **kwargs):
+            if "fireblade_device_credentials" in path:
+                return (200, [{"device_id": "MKT-019", "token_hash": hashlib.sha256(TOKEN.encode()).hexdigest(), "revoked_at": None}])
+            if "fireblade_devices?" in path:
+                return (200, [{"device_id": "MKT-019", "company_phone_number": "9345226022", "active": True}])
+            if "fireblade_device_assignments?" in path:
+                return (200, [{"employee_id": "EMP-017", "device_id": "MKT-019", "company_phone_number": "9345226022"}])
+            if "fireblade_employees?" in path:
+                if "EMP-017" in path:
+                    return (200, [{"employee_id": "EMP-017", "department_id": "dept-shane"}])
+                return (200, [{"employee_id": "EMP-001", "employee_name": "Gayathri", "department_id": "dept-marketing", "active": True}])
+            if "fireblade_departments?" in path:
+                if "select=id,name" in path:
+                    return (200, [{"id": "dept-shane", "name": "SHANE"}, {"id": "dept-marketing", "name": "MARKETING"}])
+                return (200, [{"name": "SHANE", "active": True}])
+            if "fireblade_whatsapp_connections?" in path:
+                return (200, [{
+                    "employee_id": "EMP-017",
+                    "status": "CONNECTED",
+                    "last_error": json.dumps({
+                        "enabled": True,
+                        "group_id": "120363413977876124@g.us",
+                        "group_name": "Nunes Marketing Team"
+                    })
+                }])
+            return (200, [])
+
+        with patch.object(index, "_supabase", side_effect=mock_db):
+            resp = self.client.get(
+                "/api/v3/devices/MKT-019/shane/marketing-recipients",
+                headers=HEADERS
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+            data = resp.json()
+            self.assertTrue(data.get("group_mode_enabled"))
+            self.assertEqual(data.get("group_name"), "Nunes Marketing Team")
 
     def test_employee_assigned_customers_and_single_save_details(self):
         import uuid
