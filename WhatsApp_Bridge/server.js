@@ -1609,11 +1609,10 @@ app.post('/management/shane-whatsapp/reset', async (req, res) => {
     try {
       await rm(localSessionPath(s.key), { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });
     } catch (clearErr) {
-      console.warn(`[shane-group] Local session folder clear warning: ${errorMessage(clearErr)}`);
+      return res.status(409).json({ error: `Could not clear Shane WhatsApp session safely: ${errorMessage(clearErr)}` });
     }
     sessions.delete(s.key);
-    const freshState = stateFor(shaneSessionKey);
-    await startSessionClient(freshState);
+    const freshState = await startSession(shaneSessionKey);
     res.json({ ok: true, status: freshState.status, number: freshState.number });
   } catch (error) {
     res.status(502).json({ error: errorMessage(error) });
