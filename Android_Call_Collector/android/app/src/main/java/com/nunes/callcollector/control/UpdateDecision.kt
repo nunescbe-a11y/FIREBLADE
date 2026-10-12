@@ -18,4 +18,17 @@ internal object UpdateDecision {
         previouslyOfferedReleaseId: String
     ): Boolean =
         releaseId.isNotBlank() && releaseId != previouslyOfferedReleaseId
+
+    /**
+     * Always check the installed package version before suggesting installation.
+     * This second, pure guard protects the popup even if the cached download
+     * was saved by a previous APK version or survives the installer returning.
+     */
+    fun shouldOfferInstallPrompt(
+        installedVersionCode: Long,
+        releaseVersionCode: Long,
+        releaseId: String,
+        previouslyOfferedReleaseId: String
+    ): Boolean = needsUpdate(installedVersionCode, releaseVersionCode) &&
+        shouldShowPrompt(releaseId, previouslyOfferedReleaseId)
 }
