@@ -9,14 +9,15 @@
     "lint": "tsc --noEmit",
     "test:status": "node --experimental-strip-types --test tests/device-status.test.mjs",
     "test:access": "node tests/access.test.mjs",
-    "test": "node --test tests/shane-handover.test.mjs tests/shane-overview-layout.test.mjs tests/shane-whatsapp-admin.test.mjs && npm run test:status && npm run test:pending && npm run test:shane",
+    "test": "node --test tests/shane-handover.test.mjs tests/shane-overview-layout.test.mjs tests/shane-whatsapp-admin.test.mjs && npm run test:status && npm run test:pending && npm run test:shane && npm run test:indiamart",
     "test:static": "node --test tests/shane-handover.test.mjs tests/shane-overview-layout.test.mjs",
     "check": "npm run lint && npm run test",
     "test:production": "node tests/access.test.mjs",
     "test:pending": "node --experimental-strip-types --test tests/pending-call-report.test.mjs",
     "test:shane": "node --experimental-strip-types --test tests/shane-information-report.test.mjs",
     "test:handover": "node --experimental-strip-types --test tests/shane-handover.test.mjs",
-    "test:handover-overview": "node --test tests/shane-overview-layout.test.mjs"
+    "test:handover-overview": "node --test tests/shane-overview-layout.test.mjs",
+    "test:indiamart": "node --test tests/indiamart-calls.test.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
