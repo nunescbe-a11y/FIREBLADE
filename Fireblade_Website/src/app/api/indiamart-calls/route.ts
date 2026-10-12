@@ -14,6 +14,7 @@ type SummaryRow = {
   answered: number;
   missed: number;
 };
+type CurrentHandler = { employeeName: string; employeeId: string; deviceId: string; simSlotIndex: number | null };
 type CallRow = {
   call_id: number;
   site: Site;
@@ -102,8 +103,41 @@ export async function GET(request: Request) {
       }),
       supabaseRestWithCount<CallRow[]>(`fireblade_indiamart_call_records?${filters.join("&")}`),
     ]);
+    // Read current device ownership rather than freezing handler names in the UI.
+    // A registry outage must not hide otherwise valid call records.
+    const currentHandlers: Record<string, CurrentHandler> = {};
+    try {
+      const [lines, assignments, employees] = await Promise.all([
+        supabaseRest<Array<{ device_id: string; phone_number: string; sim_slot_index: number | null }>>(
+          "fireblade_device_lines?select=device_id,phone_number,sim_slot_index&active=eq.true"
+        ),
+        supabaseRest<Array<{ device_id: string; employee_id: string }>>(
+          "fireblade_device_assignments?select=device_id,employee_id&assigned_until=is.null"
+        ),
+        supabaseRest<Array<{ employee_id: string; employee_name: string }>>(
+          "fireblade_employees?select=employee_id,employee_name&active=eq.true"
+        ),
+      ]);
+      const known = new Set(["9159242000", "7305966225", "8940944000", "7550093383", "9345226022", "9087753000"]);
+      for (const line of lines) {
+        const number = (line.phone_number || "").replace(/\\D/g, "").slice(-10);
+        if (!known.has(number)) continue;
+        const assignment = assignments.find((row) => row.device_id === line.device_id);
+        const employee = employees.find((row) => row.employee_id === assignment?.employee_id);
+        if (employee && assignment) {
+          currentHandlers[number] = {
+            employeeName: employee.employee_name,
+            employeeId: employee.employee_id,
+            deviceId: line.device_id,
+            simSlotIndex: line.sim_slot_index,
+          };
+        }
+      }
+    } catch (registryError) {
+      console.warn("[IndiaMART Calls] Current handler registry unavailable", registryError);
+    }
     return NextResponse.json({
-      site, from, to, page, pageSize,
+      site, from, to, page, pageSize, currentHandlers,
       totalCount: result.count ?? result.data.length,
       totalPages: Math.max(1, Math.ceil((result.count ?? result.data.length) / pageSize)),
       summary, calls: result.data,
