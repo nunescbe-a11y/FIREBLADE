@@ -28,7 +28,9 @@ type CallRow = {
   sim_confidence: "CONFIRMED" | "INFERRED" | "UNKNOWN";
   line_resolution: string | null;
 };
+type CurrentHandler = { employeeName: string; employeeId: string; deviceId: string; simSlotIndex: number | null };
 type Data = {
+  currentHandlers: Record<string, CurrentHandler>;
   summary: SummaryRow[];
   calls: CallRow[];
   totalCount: number;
@@ -136,13 +138,13 @@ export default function IndiaMartCallsClient() {
     return HANDLERS[site].map((handler) => {
       const matches = summary.filter((row) => row.site === site && row.receiving_sim === handler.sim);
       return {
-        ...handler, key: handler.sim,
+        ...handler, name: data?.currentHandlers?.[handler.sim]?.employeeName || handler.name, key: handler.sim,
         total: matches.reduce((sum, row) => sum + Number(row.total), 0),
         answered: matches.reduce((sum, row) => sum + Number(row.answered), 0),
         missed: matches.reduce((sum, row) => sum + Number(row.missed), 0),
       };
     });
-  }, [site, summary]);
+  }, [site, summary, data]);
   const activeSite = SITES.find((row) => row.key === site)!;
 
   function changeSite(next: Site) {
