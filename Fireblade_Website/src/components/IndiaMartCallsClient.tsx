@@ -327,7 +327,7 @@ export default function IndiaMartCallsClient() {
         </div>
       </section>
 
-      <p className={styles.footnote}>* Single-line fallback is inferred from the collector's registered line when an exact incoming SIM was not available. Calls with unresolved SIMs remain in Other receivers. IndiaMART's tracking caller ID does not reveal the original customer's phone number.</p>
+      <p className={styles.footnote}>* Single-line fallback uses the registered phone line and is provisional. Some Android call logs report a different SIM slot from the registered line; these are not independently verified and should be reviewed. Calls with unresolved SIMs remain in Other receivers. Summary cards show all statuses and handlers; the status and receiving-number filters apply to the history table. IndiaMART's tracking caller ID does not reveal the original customer's phone number.</p>
     </div>
   );
 }
