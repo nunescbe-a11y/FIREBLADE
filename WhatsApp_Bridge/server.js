@@ -1216,6 +1216,43 @@ async function processPendingShaneGroupAssignments(reason) {
       const empMap = new Map((Array.isArray(emps) ? emps : []).map(e => [e.employee_id, e.employee_name]));
 
       const { employeeMentions, mentionJids } = resolveEmployeeMentions(newEvents, empMap, participants);
+      const unmatchedMentions = employeeMentions.filter(m => !m.matched);
+      if (unmatchedMentions.length > 0) {
+        const missingNames = unmatchedMentions.map(m => `${m.name} (${m.employeeId})`).join(', ');
+        const errMsg = `Cannot send assignment: Marketing employee(s) [${missingNames}] not found in WhatsApp group or phone number not linked for @mention.`;
+        console.warn(`[shane-group] ${errMsg} Skipping detail=${detailId}`);
+        state = {
+          ...state,
+          status: 'FAILED',
+          error: errMsg,
+          employee_mentions: employeeMentions,
+          updated_at: new Date().toISOString(),
+        };
+        await writeShaneDeliveryState(detailId, state);
+        try {
+          await supabaseRequest('fireblade_whatsapp_messages', {
+            method: 'POST',
+            body: JSON.stringify({
+              direction: 'OUTBOUND',
+              sender_number: connectedNumber,
+              recipient_number: config.groupId,
+              message_type: 'SHANE_GROUP_ASSIGNMENT',
+              status: 'FAILED',
+              error_message: errMsg,
+              payload: {
+                detail_id: detailId,
+                event_ids: eventIds,
+                assigned_employee_ids: assignedEmpIds,
+                unmatched: unmatchedMentions,
+              },
+            }),
+          });
+        } catch (auditErr) {
+          console.warn(`[shane-group] Audit log to Supabase skipped/failed: ${errorMessage(auditErr)}`);
+        }
+        continue;
+      }
+
       const messageText = formatShaneGroupAssignmentText(detail, employeeMentions);
 
       console.log(`[shane-group] Sending assignment detail=${detailId} to group=${config.groupName} with ${mentionJids.length} mentions...`);
@@ -1267,14 +1304,36 @@ async function processPendingShaneGroupAssignments(reason) {
       } catch (sendErr) {
         const errStr = errorMessage(sendErr);
         const isTimeout = /timed? ?out/i.test(errStr);
+        const deliveryStatus = isTimeout ? 'UNCERTAIN' : 'FAILED';
         state = {
           ...state,
-          status: isTimeout ? 'UNCERTAIN_TIMEOUT' : 'FAILED',
+          status: deliveryStatus,
           error: errStr,
           updated_at: new Date().toISOString(),
         };
         await writeShaneDeliveryState(detailId, state);
-        console.error(`[shane-group] Send failed for detail=${detailId}: ${errStr}`);
+        console.error(`[shane-group] Send ${deliveryStatus} for detail=${detailId}: ${errStr}`);
+
+        try {
+          await supabaseRequest('fireblade_whatsapp_messages', {
+            method: 'POST',
+            body: JSON.stringify({
+              direction: 'OUTBOUND',
+              sender_number: connectedNumber,
+              recipient_number: config.groupId,
+              message_type: 'SHANE_GROUP_ASSIGNMENT',
+              status: deliveryStatus,
+              error_message: errStr,
+              payload: {
+                detail_id: detailId,
+                event_ids: eventIds,
+                assigned_employee_ids: assignedEmpIds,
+              },
+            }),
+          });
+        } catch (auditErr) {
+          console.warn(`[shane-group] Audit log to Supabase failed: ${errorMessage(auditErr)}`);
+        }
       }
 
       await sleep(2000);
@@ -1538,6 +1597,50 @@ app.post('/management/shane-whatsapp/toggle', async (req, res) => {
     config.enabled = Boolean(req.body?.enabled);
     await saveShaneGroupConfig(config);
     res.json({ ok: true, enabled: config.enabled });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.post('/management/shane-whatsapp/reset', async (req, res) => {
+  try {
+    const s = stateFor(shaneSessionKey);
+    await safeDestroySessionClient(s);
+    try {
+      await rm(localSessionPath(s.key), { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });
+    } catch (clearErr) {
+      console.warn(`[shane-group] Local session folder clear warning: ${errorMessage(clearErr)}`);
+    }
+    sessions.delete(s.key);
+    const freshState = stateFor(shaneSessionKey);
+    await startSessionClient(freshState);
+    res.json({ ok: true, status: freshState.status, number: freshState.number });
+  } catch (error) {
+    res.status(502).json({ error: errorMessage(error) });
+  }
+});
+
+app.post('/management/shane-whatsapp/retry-message', async (req, res) => {
+  try {
+    const detailId = String(req.body?.detail_id || '').trim();
+    if (!detailId) {
+      return res.status(400).json({ error: 'detail_id is required' });
+    }
+    const state = await readShaneDeliveryState(detailId);
+    if (!state) {
+      return res.status(404).json({ error: 'Delivery state not found for this detail' });
+    }
+    if (state.status === 'SENT') {
+      return res.status(400).json({ error: 'This assignment was already successfully sent. Cannot resend to prevent duplicates.' });
+    }
+    if (state.status === 'UNCERTAIN' || state.status === 'UNCERTAIN_TIMEOUT') {
+      return res.status(400).json({ error: 'Delivery status is UNCERTAIN (timed out during send). Please verify the WhatsApp group manually before retrying to prevent duplicate messages.' });
+    }
+
+    // Confirmed failure: delete or reset state so processPendingShaneGroupAssignments can pick it up
+    await rm(shaneDeliveryStatePath(detailId), { force: true }).catch(() => {});
+    void processPendingShaneGroupAssignments('ADMIN_MANUAL_RETRY');
+    res.json({ ok: true, status: 'RETRY_INITIATED', detail_id: detailId });
   } catch (error) {
     res.status(502).json({ error: errorMessage(error) });
   }
