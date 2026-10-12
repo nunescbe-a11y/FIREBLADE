@@ -33,18 +33,18 @@ test('Admin Shane WhatsApp API route proxies status, groups, members, reset and 
   assert.match(route, /fireblade_whatsapp_messages/, 'Must query WhatsApp message audit log from Supabase');
 });
 
-test('AppShell navigation exposes Shane Sir WhatsApp link to ADMIN only', () => {
+test('AppShell navigation exposes Shane WhatsApp link to ADMIN only', () => {
   const shell = read('src/components/AppShell.tsx');
-  assert.match(shell, /user\.role === ["']ADMIN["'] && item\(["']\/admin\/shane-whatsapp["'],\s*["']Shane Sir WhatsApp["']\)/,
-    'AppShell must render Shane Sir WhatsApp link only for ADMIN role');
+  assert.match(shell, /user\.role === ["']ADMIN["'] && item\(["']\/admin\/shane-whatsapp["'],\s*["']Shane WhatsApp["']\)/,
+    'AppShell must render Shane WhatsApp link only for ADMIN role');
   assert.doesNotMatch(shell, /isMarketing && item\(["']\/admin\/shane-whatsapp["']/,
-    'Shane Sir WhatsApp must NOT be exposed to Marketing role');
+    'Shane WhatsApp must NOT be exposed to Marketing role');
 });
 
 test('AdminShaneWhatsAppClient component implements all core requirements', () => {
   const client = read('src/components/AdminShaneWhatsAppClient.tsx');
   // 1. Connection status
-  assert.match(client, /Shane Sir Connection/, 'Must show connection panel');
+  assert.match(client, /Shane Connection/, 'Must show connection panel');
   assert.match(client, /9345226022/, 'Must display Shane canonical number');
   // 2. Fresh live QR
   assert.match(client, /qr_data_url/, 'Must display live QR image');
