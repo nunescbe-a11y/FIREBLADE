@@ -30,7 +30,8 @@ export default function AppShell({ user, children }: { user: SessionUser; childr
         <div className="brand"><div className="brand-mark" aria-hidden="true"><Image src="/s-mark.svg" alt="" width={42} height={42}/></div><div><strong>{FIREBLADE_PRODUCT_NAME}</strong></div></div>
         <nav>
           {item("/dashboard", isMarketing ? "My Dashboard" : "Overview")}
-          {item("/calls", isMarketing ? "My Calls" : "Calls")}
+          {canManage && item("/indiamart-calls", "IndiaMART Calls")}
+          {item("/calls", isMarketing ? "My Calls" : "General Calls")}
           {isMarketing && item("/callbacks", "My Callbacks")}
           {isMarketing && item("/whatsapp", "My WhatsApp")}
           {user.role === "MANAGEMENT" && item("/management/md-whatsapp", "MD WhatsApp Report")}
