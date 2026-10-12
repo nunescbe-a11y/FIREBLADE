@@ -244,7 +244,7 @@ export default function CallsClient({ user }: { user: SessionUser }) {
       <div className="page-header">
         <div>
           <p className="eyebrow">Incoming activity</p>
-          <h1>{user.role === "MARKETING" ? "My Calls" : "Calls Dashboard"}</h1>
+          <h1>{user.role === "MARKETING" ? "My Calls" : "General Calls"}</h1>
         </div>
         <div className="header-actions">
           <a className="secondary-button" href={`/api/export?format=csv${exportSuffix}`}>
