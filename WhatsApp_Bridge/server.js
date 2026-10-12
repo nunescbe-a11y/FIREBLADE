@@ -986,13 +986,13 @@ async function syncShaneConnectionStatus(s) {
 async function readShaneGroupConfig() {
   const config = await readJsonFile(shaneGroupConfigPath);
   if (!config) return null;
-  const sessionKey = cleanKey(config.session_key || shaneSessionKey);
-  const groupId = String(config.group_id || '').trim();
-  const groupName = String(config.group_name || '').trim();
+  const sessionKey = cleanKey(config.session_key || config.sessionKey || shaneSessionKey);
+  const groupId = String(config.group_id || config.groupId || '').trim();
+  const groupName = String(config.group_name || config.groupName || '').trim();
   const enabled = Boolean(config.enabled);
-  const activationTimestampMs = Number(config.activation_timestamp_ms || 0);
-  const allowedSenderNumbers = Array.isArray(config.allowed_sender_numbers)
-    ? config.allowed_sender_numbers.map(String)
+  const activationTimestampMs = Number(config.activation_timestamp_ms || config.activationTimestampMs || 0);
+  const allowedSenderNumbers = Array.isArray(config.allowed_sender_numbers || config.allowedSenderNumbers)
+    ? (config.allowed_sender_numbers || config.allowedSenderNumbers).map(String)
     : [SHANE_PHONE_NUMBER_CANONICAL, `91${SHANE_PHONE_NUMBER_CANONICAL}`];
   if (!sessionKey || !groupId.endsWith('@g.us')) return null;
   return {
@@ -1002,7 +1002,7 @@ async function readShaneGroupConfig() {
     enabled,
     activationTimestampMs,
     allowedSenderNumbers,
-    configuredAt: config.configured_at || null,
+    configuredAt: config.configured_at || config.configuredAt || null,
   };
 }
 
