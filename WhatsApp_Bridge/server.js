@@ -265,6 +265,12 @@ async function startSession(key) {
     s.error = null;
     // FIREBLADE_MD_READY_CATCHUP
     if (key === 'fb_md') setTimeout(() => void maybeCatchupPendingGroupReport('WHATSAPP_READY'), 1200);
+    // WhatsApp READY can occur without a reconciliation event; sync Shane's
+    // connected state and process the Admin-controlled group queue directly.
+    if (key === shaneSessionKey) {
+      setTimeout(() => void syncShaneConnectionStatus(s), 100);
+      setTimeout(() => void processPendingShaneGroupAssignments('WHATSAPP_READY'), 1200);
+    }
     console.log(`[${key}] READY${s.number ? ` as ${s.number}` : ''}`);
   });
   client.on('auth_failure', message => {
@@ -283,6 +289,8 @@ async function startSession(key) {
     s.number = null;
 
     console.warn(`[${key}] DISCONNECTED: ${s.error}`);
+
+    if (key === shaneSessionKey) void syncShaneConnectionStatus(s);
 
     scheduleSessionRestart(s, s.error, 3000);
   });
