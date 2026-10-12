@@ -1131,7 +1131,9 @@ async function getGroupParticipants(s, groupId) {
           }
         }
         const phoneJid = widText(phoneWid);
-        const phoneUser = phoneJid.split('@')[0] || '';
+        // Only PN aliases may match an employee's telephone number. LID
+        // digits are opaque WhatsApp IDs, never phone-number evidence.
+        const phoneUser = phoneJid.endsWith('@lid') ? '' : (phoneJid.split('@')[0] || '');
         const number = phoneUser || contact?.number || (id.endsWith('@c.us') ? user : '');
         const pushname = contact?.pushname || '';
         const name = contact?.name || '';
