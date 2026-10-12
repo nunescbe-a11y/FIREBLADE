@@ -1295,15 +1295,32 @@ async function processPendingShaneGroupAssignments(reason) {
         ]);
 
         const providerMessageId = sentMsg?.id?._serialized || null;
+        const reportedJids = Array.isArray(sentMsg?.mentionedIds)
+          ? sentMsg.mentionedIds.map(j => typeof j === 'string' ? j : j?._serialized).filter(Boolean)
+          : [];
+        // WhatsApp Web 1.34.x can return undefined after a message was
+        // actually posted. In that case we have no native mention proof.
+        // Never relabel such an operation SENT or retry automatically:
+        // doing so can both misrepresent tagging and double-send a customer.
+        const mentionVerified = Boolean(providerMessageId) &&
+          mentionJids.length > 0 &&
+          mentionJids.every(jid => reportedJids.includes(jid));
+        const deliveryStatus = mentionVerified ? 'SENT' : 'UNCERTAIN';
+        const verificationError = mentionVerified ? null :
+          'WhatsApp did not confirm all @mentions in the returned message metadata. Check the existing group before manual action; do not auto-resend.';
         const sentAt = new Date().toISOString();
 
         state = {
           ...state,
-          status: 'SENT',
+          status: deliveryStatus,
+          error: verificationError,
           provider_message_id: providerMessageId,
           sent_at: sentAt,
           updated_at: sentAt,
           employee_mentions: employeeMentions,
+          requested_mentions: mentionJids,
+          reported_mentions: reportedJids,
+          mention_verified: mentionVerified,
           event_ids: [...new Set([...(existingState?.event_ids || []), ...eventIds])],
         };
         await writeShaneDeliveryState(detailId, state);
@@ -1317,12 +1334,15 @@ async function processPendingShaneGroupAssignments(reason) {
               recipient_number: config.groupId,
               message_type: 'SHANE_GROUP_ASSIGNMENT',
               provider_message_id: providerMessageId,
-              status: 'SENT',
+              status: deliveryStatus,
+              error_message: verificationError,
               payload: {
                 detail_id: detailId,
                 event_ids: eventIds,
                 assigned_employee_ids: assignedEmpIds,
                 mentions: mentionJids,
+                reported_mentions: reportedJids,
+                mention_verified: mentionVerified,
               },
             }),
           });
@@ -1330,7 +1350,7 @@ async function processPendingShaneGroupAssignments(reason) {
           console.warn(`[shane-group] Audit log to Supabase skipped/failed: ${errorMessage(auditErr)}`);
         }
 
-        console.log(`[shane-group] Successfully posted assignment detail=${detailId} to ${config.groupName}! Provider msg: ${providerMessageId}`);
+        console.log(`[shane-group] Assignment delivery=${deliveryStatus} detail=${detailId}, native_mention_verified=${mentionVerified}, provider_message_id=${providerMessageId || 'UNAVAILABLE'}`);
       } catch (sendErr) {
         const errStr = errorMessage(sendErr);
         const isTimeout = /timed? ?out/i.test(errStr);
