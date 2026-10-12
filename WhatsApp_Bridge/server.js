@@ -11,6 +11,7 @@ import {
   isAuthorizedShaneSender,
   formatShaneGroupAssignmentText,
   resolveEmployeeMentions,
+  hasCompleteEmployeeMentions,
   shouldDeliverEvent,
   filterNewDetailEvents,
 } from './shane-group-logic.js';
@@ -1087,7 +1088,10 @@ async function listShaneSessionGroups(s) {
 
 async function getGroupParticipants(s, groupId) {
   if (!s?.client?.pupPage) throw new Error('Shane WhatsApp browser page is not available');
-  const participants = await s.client.pupPage.evaluate((targetGroupId) => {
+  // Resolve the group first so WhatsApp Web loads current participant metadata.
+  // Missing metadata is a verification failure, not a reason to skip tagging.
+  await s.client.getChatById(groupId);
+  const participants = await s.client.pupPage.evaluate(async (targetGroupId) => {
     const widText = (wid) => {
       try {
         if (!wid) return '';
@@ -1104,13 +1108,30 @@ async function getGroupParticipants(s, groupId) {
     if (!chat) return [];
 
     const rawParticipants = chat.groupMetadata?.participants?.getModelsArray?.() || [];
-    return rawParticipants.map(p => {
+    return (await Promise.all(rawParticipants.map(async p => {
       try {
         const id = widText(p?.id);
         const user = typeof p?.id?.user === 'string' ? p.id.user : (id.split('@')[0] || '');
         const contact = p?.contact || collections?.Contact?.get?.(id);
-        const phoneWid = p?.phoneNumber || contact?.phoneNumber;
-        const phoneUser = phoneWid ? (typeof phoneWid === 'string' ? phoneWid.split('@')[0] : (phoneWid.user || '')) : '';
+        let phoneWid = p?.phoneNumber || contact?.phoneNumber;
+        if (id.endsWith('@lid')) {
+          // WhatsApp's LID privacy IDs are not phone numbers. Ask the native
+          // contact API for the actual phone JID rather than comparing LID
+          // digits to employee company-phone numbers.
+          if (!phoneWid) {
+            try {
+              phoneWid = await window.require('WAWebApiContact')?.getPhoneNumber?.(p.id);
+            } catch {}
+          }
+          if (!phoneWid) {
+            try {
+              const resolved = await window.WWebJS?.enforceLidAndPnRetrieval?.(id);
+              phoneWid = resolved?.phone || null;
+            } catch {}
+          }
+        }
+        const phoneJid = widText(phoneWid);
+        const phoneUser = phoneJid.split('@')[0] || '';
         const number = phoneUser || contact?.number || (id.endsWith('@c.us') ? user : '');
         const pushname = contact?.pushname || '';
         const name = contact?.name || '';
@@ -1118,14 +1139,14 @@ async function getGroupParticipants(s, groupId) {
           id,
           user,
           number: String(number || '').replace(/\D/g, ''),
-          phoneNumberJid: phoneWid ? widText(phoneWid) : (id.endsWith('@c.us') ? id : null),
+          phoneNumberJid: phoneJid || (id.endsWith('@c.us') ? id : null),
           name: name || pushname || user,
           isAdmin: Boolean(p?.isAdmin || p?.isSuperAdmin)
         };
       } catch {
         return null;
       }
-    }).filter(Boolean);
+    }))).filter(Boolean);
   }, groupId);
 
   return Array.isArray(participants) ? participants : [];
@@ -1225,9 +1246,10 @@ async function processPendingShaneGroupAssignments(reason) {
 
       const { employeeMentions, mentionJids } = resolveEmployeeMentions(newEvents, empMap, participants);
       const unmatchedMentions = employeeMentions.filter(m => !m.matched);
-      if (unmatchedMentions.length > 0) {
+      const mentionsComplete = hasCompleteEmployeeMentions(newEvents, employeeMentions, mentionJids);
+      if (!mentionsComplete) {
         const missingNames = unmatchedMentions.map(m => `${m.name} (${m.employeeId})`).join(', ');
-        const errMsg = `Cannot send assignment: Marketing employee(s) [${missingNames}] not found in WhatsApp group or phone number not linked for @mention.`;
+        const errMsg = `Cannot send assignment with an unverified @mention. Unresolved employee(s): [${missingNames || assignedEmpIds.join(', ')}]. Confirm the employee's WhatsApp number is linked to a real group participant ID; no untagged message was sent.`;
         console.warn(`[shane-group] ${errMsg} Skipping detail=${detailId}`);
         state = {
           ...state,
