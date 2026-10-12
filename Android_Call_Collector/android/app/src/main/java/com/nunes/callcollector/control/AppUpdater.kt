@@ -72,11 +72,17 @@ object AppUpdater {
         pendingRelease(context)?.optString("version_name").orEmpty()
 
     fun shouldPrompt(context: Context): Boolean {
+        // Recheck the installed PackageManager version at the point the
+        // dialog could open; an APK replacement makes older cached update
+        // metadata ineligible even if the download still exists on disk.
         if (!ready(context)) return false
-        val id = pendingRelease(context)?.optString("id").orEmpty()
+        val release = pendingRelease(context) ?: return false
         val prefs = context.getSharedPreferences(PROMPT_PREFS, Context.MODE_PRIVATE)
-        return UpdateDecision.shouldShowPrompt(
-            id, prefs.getString("release", "").orEmpty()
+        return UpdateDecision.shouldOfferInstallPrompt(
+            installedVersionCode = version(context),
+            releaseVersionCode = release.optLong("version_code", -1L),
+            releaseId = release.optString("id"),
+            previouslyOfferedReleaseId = prefs.getString("release", "").orEmpty()
         )
     }
 
