@@ -120,7 +120,7 @@ export async function GET(request: Request) {
       ]);
       const known = new Set(["9159242000", "7305966225", "8940944000", "7550093383", "9345226022", "9087753000"]);
       for (const line of lines) {
-        const number = (line.phone_number || "").replace(/\\D/g, "").slice(-10);
+        const number = (line.phone_number || "").replace(/\D/g, "").slice(-10);
         if (!known.has(number)) continue;
         const assignment = assignments.find((row) => row.device_id === line.device_id);
         const employee = employees.find((row) => row.employee_id === assignment?.employee_id);
