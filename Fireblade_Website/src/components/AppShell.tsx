@@ -39,7 +39,6 @@ export default function AppShell({ user, children }: { user: SessionUser; childr
           {user.role === "ADMIN" && item("/admin/team", "Employees & Devices")}
           {user.role === "ADMIN" && item("/admin/accounts", "Employee Accounts and Passwords")}
           {canManage && item("/departments", "Departments")}
-          {user.role === "ADMIN" && item("/admin/shane-whatsapp", "Shane WhatsApp")}
           {user.role === "ADMIN" && item("/admin/updates", "App Updates")}
           {user.role === "ADMIN" && item("/admin/audit", "Audit History")}
         </nav>
