@@ -102,13 +102,6 @@ try {
     $env:FIREBLADE_PENDING_REPORT_STATE_DIR =
         Join-Path $secureDir "pending-report-state"
 
-    $env:FIREBLADE_SHANE_GROUP_CONFIG =
-        Join-Path $secureDir "shane-assignment-group.json"
-
-    $env:FIREBLADE_SHANE_DELIVERY_STATE_DIR =
-        Join-Path $secureDir "shane-delivery-state"
-
-
     # --------------------------------------------------------
     # Google Drive service account
     # --------------------------------------------------------
@@ -376,36 +369,7 @@ try {
                             "fb_md status probe warning: $($_.Exception.Message)"
                     }
 
-                    if (Test-Path -LiteralPath (Join-Path $authRoot "session-fb_shane_assignments")) {
-                        try {
-                            $shaneStatus = Invoke-RestMethod `
-                                -Uri "http://127.0.0.1:3100/sessions/fb_shane_assignments/status" `
-                                -Headers @{
-                                    "X-Fireblade-Bridge-Key" =
-                                        $env:FIREBLADE_WHATSAPP_BRIDGE_KEY
-                                } `
-                                -TimeoutSec 5
 
-                            if ($shaneStatus.status -eq "DISCONNECTED") {
-                                Write-WatchdogLog `
-                                    "fb_shane_assignments disconnected; requesting reconnect."
-
-                                Invoke-RestMethod `
-                                    -Method Post `
-                                    -Uri "http://127.0.0.1:3100/sessions/fb_shane_assignments/start" `
-                                    -Headers @{
-                                        "X-Fireblade-Bridge-Key" =
-                                            $env:FIREBLADE_WHATSAPP_BRIDGE_KEY
-                                    } `
-                                    -TimeoutSec 120 |
-                                Out-Null
-                            }
-                        }
-                        catch {
-                            Write-WatchdogLog `
-                                "fb_shane_assignments status probe warning: $($_.Exception.Message)"
-                        }
-                    }
                 }
             }
 
