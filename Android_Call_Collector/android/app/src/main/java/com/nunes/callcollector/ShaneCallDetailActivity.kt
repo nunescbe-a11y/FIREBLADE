@@ -220,11 +220,6 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             return
         }
 
-        b.tvMarketingStatus.text = "No active Marketing employees are available."
-            updateMarketingSelectionUi()
-            return
-        }
-
         b.tvMarketingStatus.text =
             "Choose employees to assign in Fireblade. WhatsApp opens for selected employees with a WhatsApp number."
 

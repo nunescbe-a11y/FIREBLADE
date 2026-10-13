@@ -15,33 +15,30 @@ function saveAndSendBody() {
   return kotlin.slice(start, end);
 }
 
-test('Shane save never opens personal WhatsApp chats on cached-disabled group mode', () => {
+test('Shane save initiates direct individual WhatsApp handoff for each recipient', () => {
   const saving = saveAndSendBody();
-  assert.doesNotMatch(saving, /openWhatsApp\s*\(/);
-  assert.doesNotMatch(saving, /startRecipientQueue\s*\(/);
-  assert.doesNotMatch(saving, /launchDirectWhatsApp\s*\(/);
-  assert.doesNotMatch(saving, /openGenericShare\s*\(/);
+  assert.match(saving, /startRecipientQueue\s*\(/);
+  assert.match(kotlin, /launchDirectWhatsApp\s*\(/);
+  assert.match(saving, /selectedRecipients\.filter\s*\{/);
   assert.doesNotMatch(saving, /isGroupModeEnabled\s*\(/);
   assert.match(saving, /db\.withTransaction\s*\{/);
   assert.match(saving, /ShaneAssignmentEventEntity\s*\(/);
   assert.match(saving, /AutomationScheduler\.enqueueSync\s*\(/);
-  assert.match(saving, /finish\s*\(\s*\)/);
 });
 
-test('Shane assignment confirmations do not claim a message was sent', () => {
-  const saving = saveAndSendBody();
-  assert.match(saving, /Saved locally and syncing to Fireblade/);
-  assert.match(saving, /Check Admin for WhatsApp delivery/);
-  assert.doesNotMatch(saving, /Sending to \$groupName/);
-  assert.match(kotlin, /else "Save Details"/);
-  assert.doesNotMatch(kotlin, /WhatsApp opens for selected employees/);
+test('Shane handoff dialogs acknowledge individual send without claiming automatic delivery', () => {
+  assert.match(kotlin, /cannot verify whether the previous WhatsApp message was sent/);
+  assert.match(kotlin, /rememberWhatsAppHandoff\s*\(recipient\)/);
+  assert.match(kotlin, /WHATSAPP_HANDOFF_OPENED/);
+  assert.doesNotMatch(kotlin, /Check Admin for WhatsApp delivery/);
+  assert.doesNotMatch(kotlin, /Sending to \$groupName/);
 });
 
-test('bridge READY transitions sync connection and trigger queued dispatch only for Shane', () => {
+test('bridge READY transitions retain MD catchup while Shane group sender is completely removed', () => {
   const readyHandler = bridge.slice(bridge.indexOf("client.on('ready', () => {"), bridge.indexOf("client.on('auth_failure',"));
   assert.match(readyHandler, /if \(key === 'fb_md'\) setTimeout\(\(\) => void maybeCatchupPendingGroupReport/);
-  assert.match(readyHandler, /if \(key === shaneSessionKey\)/);
-  assert.match(readyHandler, /syncShaneConnectionStatus\(s\)/);
-  assert.match(readyHandler, /processPendingShaneGroupAssignments\('WHATSAPP_READY'\)/);
-  assert.match(bridge, /if \(key === shaneSessionKey\) void syncShaneConnectionStatus\(s\)/);
+  assert.doesNotMatch(readyHandler, /shaneSessionKey/);
+  assert.doesNotMatch(bridge, /processPendingShaneGroupAssignments/);
+  assert.doesNotMatch(bridge, /management\/shane-whatsapp/);
 });
+
