@@ -220,13 +220,13 @@ class ShaneCallDetailActivity : AppCompatActivity() {
             return
         }
 
-        val groupModeEnabled = ShaneMarketingApi.isGroupModeEnabled(this)
-        val groupName = ShaneMarketingApi.getGroupName(this) ?: "Marketing Group"
-        b.tvMarketingStatus.text = if (groupModeEnabled) {
-            "Choose employees to assign in Fireblade. Assignments are synced for automatic delivery to $groupName with @mentions; verify sending in Admin."
-        } else {
-            "Choose employees to assign in Fireblade. Saving queues their assignments; an Admin must activate group sending. WhatsApp will not open."
+        b.tvMarketingStatus.text = "No active Marketing employees are available."
+            updateMarketingSelectionUi()
+            return
         }
+
+        b.tvMarketingStatus.text =
+            "Choose employees to assign in Fireblade. WhatsApp opens for selected employees with a WhatsApp number."
 
         marketingRecipients.forEach { recipient ->
             val row = layoutInflater.inflate(
@@ -483,24 +483,39 @@ class ShaneCallDetailActivity : AppCompatActivity() {
                 return@launch
             }
 
-            // Never launch a direct WhatsApp chat from Shane's assignment screen.
-            // Employee assignments were saved atomically in Room and will sync.
-            // The separate Admin-controlled bridge handles group @mentions.
-            // A stale group_mode_enabled cache must never trigger 1-on-1 chat.
+            val message = buildMessage(
+                customerName = customerName,
+                phone = call.phoneRaw.ifBlank { call.phoneNormalized },
+                productAsked = productAsked,
+                location = location,
+                notes = notes,
+                quotation = quotation,
+                catalogue = catalogue,
+                image = image,
+                veryUrgent = urgent,
+                callStartedAtEpochMs = call.startedAtEpochMs
+            )
+
             if (selectedRecipients.isEmpty()) {
-                Toast.makeText(
-                    this@ShaneCallDetailActivity,
-                    "Details saved. Select an employee to queue a group assignment.",
-                    Toast.LENGTH_LONG
-                ).show()
+                // No in-app assignment without an explicitly chosen recipient.
+                openWhatsApp(message)
             } else {
+                val whatsappRecipients = selectedRecipients.filter {
+                    it.available && it.phoneNumber.isNotBlank()
+                }
                 Toast.makeText(
                     this@ShaneCallDetailActivity,
-                    "Assigned to ${selectedRecipients.size} employee(s). Saved locally and syncing to Fireblade. Check Admin for WhatsApp delivery.",
+                    "Assigned to ${selectedRecipients.size} employee(s) in Fireblade. Syncing...",
                     Toast.LENGTH_LONG
                 ).show()
+                if (whatsappRecipients.isNotEmpty()) {
+                    startRecipientQueue(message, whatsappRecipients, saved)
+                } else {
+                    // Assignment was saved for every selected employee even when
+                    // no WhatsApp destination is configured.
+                    finish()
+                }
             }
-            finish()
         }
     }
 
