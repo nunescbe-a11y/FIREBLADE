@@ -57,7 +57,6 @@ export type IncomingCall = {
   contact_id: string | null;
   person_name: string | null;
   company_name: string | null;
-  location?: string | null;
   known_contact_count: number;
 };
 
@@ -66,7 +65,6 @@ export type Contact = {
   phone_number_normalized: string;
   person_name: string;
   company_name: string | null;
-  location?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -159,6 +157,17 @@ export type DeviceHealthRecord = {
   updated_at: string;
 };
 
+export type DeviceUpdateInfo = {
+  stage: "CURRENT" | "AVAILABLE" | "AWAITING_INSTALL" | "DOWNLOADING" | "FAILED" | "NOT_INSTALLED" | "UNKNOWN";
+  can_update: boolean;
+  installed_version: string | null;
+  installed_code: number | null;
+  target_version: string | null;
+  target_code: number | null;
+  message?: string | null;
+  last_checked_at?: string | null;
+};
+
 export type DeviceHealthView = {
   state?: import("./device-status").PhoneState;
   phone_working?: "YES" | "NO" | "UNKNOWN";
@@ -183,6 +192,7 @@ export type DeviceHealthView = {
   mobile_data_status: MobileDataHealthStatus;
   last_seen: string | null;
   details?: DeviceHealthRecord | null;
+  update_info?: DeviceUpdateInfo;
 };
 
 export type CallbackTask = {

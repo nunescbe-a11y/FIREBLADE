@@ -18,9 +18,8 @@ export async function GET(request: Request) {
   const format = url.searchParams.get("format") === "xlsx" ? "xlsx" : "csv";
   const employeeId = session.role === "MARKETING" ? (session.employee_id || "") : (url.searchParams.get("employeeId")?.trim() || "");
   const lineFilter = url.searchParams.get("lineFilter")?.trim() || "";
-  const status = url.searchParams.get("status")?.trim() || "ALL";
-  const callType = url.searchParams.get("callType")?.trim() || "ALL";
-  const search = url.searchParams.get("search")?.trim().toLowerCase() || "";
+  const callIdsParam = url.searchParams.get("callIds")?.trim();
+  const allowedCallIds = callIdsParam ? new Set(callIdsParam.split(",").map(Number).filter(n => !isNaN(n))) : null;
 
   try {
     const [calls, employees, assignments, lines] = await Promise.all([
@@ -42,6 +41,7 @@ export async function GET(request: Request) {
     }
 
     const filtered = calls.filter(c => {
+      if (allowedCallIds && !allowedCallIds.has(c.call_id)) return false;
       if (employeeId) {
         const exact = c.registered_employee_id === employeeId;
         const historicalFallback = !c.registered_employee_id && employeeDevices.has(c.device_id) && selectedEmployee &&
@@ -54,20 +54,6 @@ export async function GET(request: Request) {
         const deviceLines = lines.filter(l => l.device_id === selectedDeviceId && l.active);
         if (c.resolved_line_id == null && deviceLines.length === 1) return true;
         return false;
-      }
-      if (status !== "ALL") {
-        const handled = Boolean(c.enquiry_id) && c.resolution_outcome !== "RECOVERED";
-        const businessStatus = handled ? "COMPLETED" : "PENDING";
-        if (businessStatus !== status) return false;
-      }
-      if (callType !== "ALL" && c.direction !== callType) return false;
-      if (search) {
-        const matches = [
-          c.phone_number_normalized, c.phone_number_raw, c.person_name, c.company_name,
-          c.product_name, c.requirement_details, c.received_by, c.company_phone_number,
-          c.device_id, c.resolved_line_label, c.resolved_line_carrier,
-        ].filter(Boolean).some(v => String(v).toLowerCase().includes(search));
-        if (!matches) return false;
       }
       return true;
     });

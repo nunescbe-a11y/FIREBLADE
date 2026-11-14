@@ -30,14 +30,16 @@ export default function AppShell({ user, children }: { user: SessionUser; childr
         <div className="brand"><div className="brand-mark" aria-hidden="true"><Image src="/s-mark.svg" alt="" width={42} height={42}/></div><div><strong>{FIREBLADE_PRODUCT_NAME}</strong></div></div>
         <nav>
           {item("/dashboard", isMarketing ? "My Dashboard" : "Overview")}
-          {canManage && item("/indiamart-calls", "IndiaMART Calls")}
-          {item("/calls", isMarketing ? "My Calls" : "General Calls")}
-          {isMarketing && item("/callbacks", "My Callbacks")}
+          {item("/calls", isMarketing ? "My Calls" : "Calls")}
+          {item("/callbacks", isMarketing ? "My Callbacks" : "Missed Call Performance")}
+          {canManage && item("/performance", "Performance Intelligence")}
           {isMarketing && item("/whatsapp", "My WhatsApp")}
           {user.role === "MANAGEMENT" && item("/management/md-whatsapp", "MD WhatsApp Report")}
           {canManage && item("/device-health", "Device Health")}
           {user.role === "ADMIN" && item("/admin/team", "Employees & Devices")}
-          {user.role === "ADMIN" && item("/admin/accounts", "Employee Accounts and Passwords")}
+          {user.role === "ADMIN" && item("/admin/accounts", "Employee Accounts")}
+          {user.role === "ADMIN" && item("/admin/catalogue", "Catalogue Overrides")}
+          {user.role === "ADMIN" && item("/admin/information-types", "Information Types")}
           {canManage && item("/departments", "Departments")}
           {user.role === "ADMIN" && item("/admin/updates", "App Updates")}
           {user.role === "ADMIN" && item("/admin/audit", "Audit History")}

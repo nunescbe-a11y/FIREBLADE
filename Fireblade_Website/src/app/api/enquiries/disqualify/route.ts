@@ -25,22 +25,36 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const callId = Number(body.callId);
-  if (!Number.isInteger(callId) || callId <= 0) {
+  const callIds: number[] = Array.isArray(body.callIds)
+    ? body.callIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+    : (Number.isInteger(Number(body.callId)) && Number(body.callId) > 0 ? [Number(body.callId)] : []);
+
+  if (!callIds.length) {
     return NextResponse.json({ error: "Invalid call" }, { status: 400 });
   }
 
   try {
-    const enquiryId = await supabaseRest<string>("rpc/fireblade_mark_call_disqualified", {
-      method: "POST",
-      body: JSON.stringify({
-        p_call_id: callId,
-        p_employee_id: session.employee_id,
-        p_actor: session.username,
-      }),
-    });
+    let lastEnquiryId = "";
+    let processedCount = 0;
+    for (const callId of callIds) {
+      try {
+        lastEnquiryId = await supabaseRest<string>("rpc/fireblade_mark_call_disqualified", {
+          method: "POST",
+          body: JSON.stringify({
+            p_call_id: callId,
+            p_employee_id: session.employee_id,
+            p_actor: session.username,
+          }),
+        });
+        processedCount++;
+      } catch (innerError) {
+        // If single call failed and it's the only one, rethrow; otherwise continue bulk processing
+        if (callIds.length === 1) throw innerError;
+        console.warn(`[Bulk Disqualify] Skipped call ${callId}:`, innerError);
+      }
+    }
 
-    return NextResponse.json({ ok: true, enquiryId, outcome: "DISQUALIFIED" });
+    return NextResponse.json({ ok: true, enquiryId: lastEnquiryId, processed: processedCount, outcome: "DISQUALIFIED" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not mark call as disqualified";
     if (/already has enquiry details/i.test(message)) {

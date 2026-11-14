@@ -2,28 +2,40 @@ import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { supabaseRest } from "@/lib/supabase";
-import { loadShaneLatestAssignments } from "@/lib/shane-assignment-events";
 
-import {
-  mergeShaneReportRows, shaneDateWindow,
-  type InformationTypeRow, type ReportRow, type ShaneDetailRow,
-} from "@/lib/shane-information-report";
+type InformationItem = {
+  id: string;
+  code: string;
+  label: string;
+  sort_order: number;
+  sent: boolean;
+  remarks: string | null;
+  answered_by: string | null;
+  updated_at: string | null;
+};
 
-type EmployeeNameRow = { employee_id: string; employee_name: string };
+type ReportRow = {
+  enquiry_id: string;
+  call_id: number;
+  call_at: string;
+  employee_id: string;
+  employee_name: string;
+  customer_name: string;
+  customer_company: string;
+  customer_phone: string;
+  product_name: string;
+  requirement_details: string | null;
+  notes: string | null;
+  information_items: InformationItem[];
+};
 
-async function loadShaneDetails(from: string, to: string): Promise<ShaneDetailRow[]> {
-  const { start, end } = shaneDateWindow(from, to);
-  const rows: ShaneDetailRow[] = [];
-  const pageSize = 1000;
-  for (let offset = 0; offset < 100000; offset += pageSize) {
-    const page = await supabaseRest<ShaneDetailRow[]>(
-      `fireblade_shane_call_details?select=*&call_started_at_epoch_ms=gte.${start}&call_started_at_epoch_ms=lt.${end}&order=call_started_at_epoch_ms.desc,detail_id.desc&limit=${pageSize}&offset=${offset}`
-    );
-    rows.push(...page);
-    if (page.length < pageSize) return rows;
-  }
-  throw new Error("Too many call details for selected period; choose a shorter range");
-}
+type InformationTypeRow = {
+  id: string;
+  code: string;
+  label: string;
+  sort_order: number;
+  active: boolean;
+};
 
 function validDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -45,46 +57,26 @@ function istDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function assignmentTime(row: ReportRow): string {
-  if (typeof row.assigned_at_epoch_ms === "number" && row.assigned_at_epoch_ms > 0) {
-    return istDateTime(new Date(row.assigned_at_epoch_ms).toISOString());
-  }
-  if (row.assigned_at && !Number.isNaN(Date.parse(row.assigned_at))) {
-    return istDateTime(row.assigned_at);
-  }
-  return "Not recorded";
-}
-
 function reportRecord(row: ReportRow, types: InformationTypeRow[]) {
-  const byType = new Map((row.information_items || []).map(item => [item.id, item]));
-  // CSV and Excel use the same seven primary columns as the screen, followed by details.
+  const byType = new Map((row.information_items || []).map((item) => [item.id, item]));
   const record: Record<string, string | number> = {
-    "Employee": row.employee_name || row.employee_id || "Not recorded",
-    "Customer": row.customer_name || "Not recorded",
-    "Product": row.product_name || "Not recorded",
-    "Call Date / Time": istDateTime(row.call_at),
-    "Location": row.location || "Not recorded",
-    "Assigned To": row.assigned_to_employee_name || row.assigned_to_employee_id || "Not recorded",
-    "Assigned Date / Time": assignmentTime(row),
+    "Employee Name": row.employee_name || "",
     "Employee ID": row.employee_id || "",
-    "Source": row.source === "SHANE" ? "Shane" : "Employee enquiry",
+    "Customer Name": row.customer_name || "",
     "Customer Company": row.customer_company || "",
     "Customer Phone": row.customer_phone || "",
+    "Product Name": row.product_name || "",
   };
 
   for (const type of types) {
     const item = byType.get(type.id);
-    record[`${type.label} Sent`] = row.source === "SHANE"
-      ? "Not applicable on Shane form"
-      : item ? (item.sent ? "Yes" : "No") : "Not recorded";
+    record[`${type.label} Sent`] = item ? (item.sent ? "Yes" : "No") : "Not recorded";
     record[`${type.label} Remarks`] = item?.remarks || "";
   }
 
-  record["Very Urgent"] = row.source === "SHANE" ? (row.very_urgent ? "Yes" : "No") : "Not recorded";
-  record["Device ID"] = row.device_id || "";
-  record["Shane Detail ID"] = row.detail_id || "";
   record["Requirement Details"] = row.requirement_details || "";
   record["Notes"] = row.notes || "";
+  record["Call Date / Time (IST)"] = istDateTime(row.call_at);
   return record;
 }
 
@@ -99,15 +91,13 @@ export async function GET(request: Request) {
   const from = String(url.searchParams.get("from") || "").trim();
   const to = String(url.searchParams.get("to") || "").trim();
   const employee = String(url.searchParams.get("employee") || "").trim();
-  const source = String(url.searchParams.get("source") || "").trim().toUpperCase();
   const format = String(url.searchParams.get("format") || "").toLowerCase();
 
   if (!validDate(from) || !validDate(to)) return NextResponse.json({ error: "Valid from/to dates are required" }, { status: 400 });
   if (from > to) return NextResponse.json({ error: "From date cannot be after To date" }, { status: 400 });
-  if (source && source !== "ENQUIRY") return NextResponse.json({ error: "Invalid source filter" }, { status: 400 });
 
   try {
-    const [rowsRaw, types, details, employees] = await Promise.all([
+    const [rowsRaw, types] = await Promise.all([
       supabaseRest<ReportRow[]>("rpc/fireblade_information_sent_report", {
         method: "POST",
         body: JSON.stringify({ p_start_date: from, p_end_date: to }),
@@ -115,25 +105,9 @@ export async function GET(request: Request) {
       supabaseRest<InformationTypeRow[]>(
         "fireblade_information_types?select=id,code,label,sort_order,active&order=sort_order.asc,label.asc",
       ),
-      loadShaneDetails(from, to),
-      supabaseRest<EmployeeNameRow[]>("fireblade_employees?select=employee_id,employee_name"),
     ]);
 
-    const employeeNames = new Map(employees.map(row => [row.employee_id, row.employee_name]));
-    const assignments = await loadShaneLatestAssignments(details.map(row => row.detail_id));
-    const detailsWithAssignments = details.map(detail => {
-      const assignment = assignments.get(detail.detail_id);
-      return {
-        ...detail,
-        assigned_to_employee_id: assignment?.events[0]?.assigned_to_employee_id ?? null,
-        assigned_to_employee_name: assignment?.events.map(event =>
-          employeeNames.get(event.assigned_to_employee_id) || event.assigned_to_employee_id
-        ).join(", ") || null,
-        assigned_at_epoch_ms: assignment?.occurred_at_epoch_ms ?? null,
-      };
-    });
-    const combined = mergeShaneReportRows(rowsRaw, detailsWithAssignments, types, employeeNames);
-    const rows = combined.filter(row => (!source || row.source === source) && (!employee || row.employee_id === employee));
+    const rows = employee ? rowsRaw.filter((row) => row.employee_id === employee) : rowsRaw;
 
     if (format !== "csv" && format !== "xlsx") {
       return NextResponse.json({ rows, types });

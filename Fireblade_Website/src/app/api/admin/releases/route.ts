@@ -31,13 +31,32 @@ async function validateTarget(targetRaw:unknown){
 export async function GET(){
   try{
     await requireUser();
-    const [releases,devices,health,updates]=await Promise.all([
+    const [releases,devices,health,updates,employees,assignments,departments]=await Promise.all([
       supabaseRest("fireblade_app_releases?select=*&order=version_code.desc&limit=30"),
-      supabaseRest("fireblade_devices?select=device_id,device_name&active=eq.true&order=device_id.asc"),
-      supabaseRest("fireblade_device_health?select=device_id,apk_version,app_version_code,received_at"),
-      supabaseRest("fireblade_update_status?select=*")
+      supabaseRest<Array<{device_id:string;device_name:string|null;company_phone_number:string|null}>>("fireblade_devices?select=device_id,device_name,company_phone_number&active=eq.true&order=device_id.asc"),
+      supabaseRest("fireblade_device_health?select=device_id,apk_version,app_version_code,received_at,employee_name,battery_percent,collector_state,source_verified"),
+      supabaseRest("fireblade_update_status?select=*"),
+      supabaseRest<Array<{employee_id:string;employee_name:string;department_id:string}>>("fireblade_employees?select=employee_id,employee_name,department_id&active=eq.true"),
+      supabaseRest<Array<{device_id:string;employee_id:string}>>("fireblade_device_assignments?select=device_id,employee_id&assigned_until=is.null"),
+      supabaseRest<Array<{id:string;name:string}>>("fireblade_departments?select=id,name")
     ]);
-    return NextResponse.json({releases,devices,health,updates,push_configured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON});
+
+    const empMap = new Map(employees.map(e => [e.employee_id, e]));
+    const deptMap = new Map(departments.map(d => [d.id, d.name]));
+    const assignMap = new Map(assignments.map(a => [a.device_id, a.employee_id]));
+
+    const enrichedDevices = devices.map(d => {
+      const empId = assignMap.get(d.device_id);
+      const emp = empId ? empMap.get(empId) : undefined;
+      return {
+        ...d,
+        employee_id: empId || null,
+        employee_name: emp?.employee_name || null,
+        department_name: emp?.department_id ? (deptMap.get(emp.department_id) || "Unassigned") : "Unassigned"
+      };
+    });
+
+    return NextResponse.json({releases,devices:enrichedDevices,health,updates,push_configured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON});
   }catch(e){return apiError(e);}
 }
 

@@ -13,121 +13,6 @@ test('normal login/logout paths do not force router refresh', () => {
   assert.ok(!read('src/components/AppShell.tsx').includes('router.refresh()'));
 });
 
-test('Shane details are visible only to Admin and Management, with all persisted fields', () => {
-  const page = read('src/app/shane-call-details/page.tsx');
-  const api = read('src/app/api/management/shane-call-details/route.ts');
-  const ui = read('src/components/ShaneCallDetailsClient.tsx');
-  const shell = read('src/components/AppShell.tsx');
-  assert.ok(page.includes('user.role !== "ADMIN" && user.role !== "MANAGEMENT"'));
-  assert.ok(api.includes('session.role !== "ADMIN" && session.role !== "MANAGEMENT"'));
-  assert.ok(api.includes('fireblade_shane_call_details?select=*'));
-  assert.ok(ui.includes('Not recorded'));
-  assert.ok(!ui.includes('"Quotation Sent"'));
-  assert.ok(!ui.includes('"Catalogue Sent"'));
-  assert.ok(!ui.includes('"Image Sent"'));
-  assert.match(ui, /"quotation", "catalogue", "image"/); // Hide obsolete DB columns from extra-field view.
-  for (const field of ['customer_name', 'product_asked', 'location', 'notes', 'very_urgent', 'device_id', 'employee_id', 'phone_number_raw']) {
-    assert.ok(ui.includes(field), 'Missing Shane detail field: ' + field);
-  }
-  assert.ok(!shell.includes('"Shane Sir Call Details"'));
-  assert.ok(ui.includes('<h1>Shane Call Details</h1>'));
-  const columns = ['Employee', 'Customer', 'Product', 'Call Date / Time',
-    'Location', 'Assigned To', 'Assigned Date / Time'];
-  const headers = [...ui.matchAll(/<th>([^<]+)<\/th>/g)].map(match => match[1]);
-  assert.deepEqual(headers, columns);
-  assert.match(ui, /assigned_to_employee_name/);
-  assert.match(ui, /assigned_at_epoch_ms/);
-  assert.match(ui, /row\.assigned_to_employee_name\?\.trim\(\)/);
-  assert.match(ui, /"Not recorded"/);
-  assert.match(ui, /View details/);
-  const rowApi = read('src/app/api/management/shane-call-details/route.ts');
-  assert.match(rowApi, /assigned_to_employee_id/);
-  assert.match(rowApi, /assigned_to_employee_name/);
-});
-
-test('Overview and Information Sent report use the seven assignment-focused columns', () => {
-  const shared = read('src/components/InformationSentTable.tsx');
-  const overview = read('src/components/DashboardInformationSent.tsx');
-  const report = read('src/components/InformationSentReportClient.tsx');
-  const api = read('src/app/api/management/information-sent/route.ts');
-  const merge = read('src/lib/shane-information-report.ts');
-  const labels = ["Employee", "Customer", "Product", "Call Date / Time",
-    "Location", "Assigned To", "Assigned Date / Time"];
-  for (const label of labels) assert.ok(shared.includes('"' + label + '"'));
-  assert.match(shared, /COLUMN_LABELS\.map/);
-  assert.match(shared, /colSpan=\{7\}/);
-  assert.match(shared, /assignmentName\(row\)/);
-  assert.match(shared, /assignmentTime\(row\)/);
-  assert.match(shared, /View details/);
-  assert.match(shared, /itemById/);
-  assert.match(overview, /<InformationSentTable/);
-  assert.match(report, /<InformationSentTable/);
-  assert.match(api, /fireblade_shane_call_details\?select=\*/);
-  assert.match(api, /Assigned Date \/ Time/);
-  assert.match(merge, /assigned_to_employee_id/);
-  assert.match(merge, /assigned_at_epoch_ms/);
-  assert.ok(!shared.includes('row.employee_id || row.assigned_to_employee_id'));
-});
-
-test('Shane form history is private and assignment source is distinct from call employee', () => {
-  const migration = read('fireblade_shane_assignment_and_form_history.sql');
-  const extraPayload = read('fireblade_shane_complete_form_payload.sql');
-  const latest = read('src/lib/shane-assignment-events.ts');
-  const detailsRoute = read('src/app/api/management/shane-call-details/route.ts');
-  const reportRoute = read('src/app/api/management/information-sent/route.ts');
-  const shaneMerge = read('src/lib/shane-information-report.ts');
-  const summary = read('src/components/InformationSentTable.tsx');
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.fireblade_shane_assignment_events/);
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.fireblade_shane_form_revisions/);
-  assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
-  assert.match(migration, /REVOKE ALL ON TABLE .* FROM PUBLIC, anon, authenticated/);
-  assert.match(migration, /fireblade_shane_saved_form_revision_trigger/);
-  assert.match(extraPayload, /ADD COLUMN IF NOT EXISTS form_payload jsonb/);
-  assert.match(latest, /event_type=in\.\(ASSIGNED,REASSIGNED\)/);
-  assert.match(detailsRoute, /loadShaneLatestAssignments/);
-  const history = read('src/app/api/management/shane-call-details/history/route.ts');
-  const detailUi = read('src/components/ShaneCallDetailsClient.tsx');
-  assert.match(history, /session.role !== "ADMIN" && session.role !== "MANAGEMENT"/);
-  assert.match(history, /fireblade_shane_assignment_events/);
-  assert.match(history, /fireblade_shane_form_revisions/);
-  assert.match(detailUi, /Assignment and saved form history/);
-  assert.match(detailUi, /WHATSAPP|event_type\.replaceAll/);
-  assert.match(detailUi, /displayedSnapshot/);
-  assert.match(detailUi, /enabled: Boolean\(expandedId\)/);
-  assert.match(latest, /ASSIGNED,REASSIGNED/);
-  // All employees selected during the same save share an action timestamp.
-  assert.match(latest, /batch\.events\.push\(event\)/);
-  assert.match(latest, /batch\.occurred_at_epoch_ms === event\.occurred_at_epoch_ms/);
-  assert.match(detailsRoute, /assigned_to_employee_names: assigneeNames/);
-  assert.match(reportRoute, /assignment\?\.events\.map\(event =>/);
-
-  assert.match(reportRoute, /loadShaneLatestAssignments/);
-  assert.match(shaneMerge, /Shane's Android form has NO quotation, catalogue or image selections/);
-  assert.match(summary, /row\.source !== "SHANE" && types\.map/);
-});
-
-test('Admin and Management reports auto-refresh every 5 seconds in visible tabs', () => {
-  const polling = read('src/lib/use-visible-polling.ts');
-  assert.match(polling, /FIREBLADE_DETAIL_REFRESH_MS = 5_000/);
-  assert.match(polling, /window\.setInterval/);
-  assert.match(polling, /document\.hidden/);
-  assert.match(polling, /visibilitychange/);
-  assert.match(polling, /window\.clearInterval/);
-  assert.match(polling, /controller\.signal/);
-  assert.match(polling, /inFlight\.current\.abort\(\)/);
-  assert.match(polling, /setData\(json as T\)/);
-  for (const path of [
-    'src/components/DashboardInformationSent.tsx',
-    'src/components/InformationSentReportClient.tsx',
-    'src/components/ShaneCallDetailsClient.tsx',
-  ]) {
-    const source = read(path);
-    assert.match(source, /useVisiblePolling/);
-    assert.match(source, /Automatically refreshes every 5 seconds/);
-  }
-  assert.match(read('src/components/DashboardInformationSent.tsx'), /enabled: expanded/);
-});
-
 test('marketing calls are scoped by server-side employee ownership', () => {
   const source = read('src/app/api/calls/route.ts');
   assert.match(source, /role\s*===\s*["']MARKETING["']/);
@@ -231,8 +116,13 @@ test('WhatsApp bridge restricts media downloads to approved HTTPS hosts and size
   assert.match(source, /FIREBLADE_WHATSAPP_MAX_MEDIA_MB/);
 });
 
-test('catalogue administration is removed per simplification and private storage functions exist', () => {
+test('catalogue administration is admin-only and uses private signed storage uploads', () => {
+  const route = read('src/app/api/admin/product-assets/route.ts');
   const storage = read('src/lib/supabase.ts');
+  assert.match(route, /user\.role!==["']ADMIN["']/);
+  assert.match(route, /publish_status=eq\.PUBLISHED/);
+  assert.match(route, /verification_status=eq\.VERIFIED/);
+  assert.match(route, /customer_sendable:true/);
   assert.match(storage, /object\/upload\/sign/);
   assert.match(readProject('Database_Migrations/fireblade_gen2.sql'), /fireblade-product-assets/);
 });
@@ -313,8 +203,11 @@ test('Gen 2.1.3 supports Recover, OEM callback resolution and one common Informa
   assert.match(migration, /RECOVERED/);
   assert.match(migration, /action,[\s\S]*'RECOVERED'/);
 
-  assert.match(enquiryUi, /Notes \/ Remarks/);
+  assert.match(enquiryUi, /Common Remarks/);
+  assert.match(enquiryUi, /COMMON_REMARK_CODES/);
   assert.doesNotMatch(enquiryUi, /Why was .* not sent/);
+  assert.match(enquiryApi, /Common Remarks are required/);
+  assert.match(enquiryApi, /commonRemarkCodes/);
 
   assert.match(migration, /OTHER_100/);
   assert.match(migration, /coalesce\(o\.duration_seconds, 0\) > 0/);

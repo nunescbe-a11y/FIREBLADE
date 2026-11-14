@@ -3,6 +3,14 @@ import { getSession } from "@/lib/auth";
 import { supabaseRest } from "@/lib/supabase";
 import type { Contact } from "@/lib/types";
 
+type InformationTypeRow = {
+  id: string;
+  code: string;
+  label: string;
+  active: boolean;
+  require_remark_when_no: boolean;
+};
+
 type InformationAnswerBody = {
   informationTypeId?: unknown;
   sent?: unknown;
@@ -20,11 +28,10 @@ export async function POST(request: Request) {
   const companyName = String(body.companyName || "").trim();
   const productName = String(body.productName || "").trim();
   const requirementDetails = String(body.requirementDetails || "").trim();
-  const location = String(body.location || "").trim();
   const notes = String(body.notes || "").trim();
   const requestedContactId = String(body.contactId || "").trim();
   const commonRemarks = String(body.commonRemarks || "").trim();
-  const informationSent = Array.isArray(body.informationSent) ? (body.informationSent as InformationAnswerBody[]) : [];
+  const informationSent = Array.isArray(body.informationSent) ? body.informationSent as InformationAnswerBody[] : [];
 
   if (!Number.isInteger(callId) || callId <= 0) return NextResponse.json({ error: "Invalid call" }, { status: 400 });
   if (!personName) return NextResponse.json({ error: "Person name is required" }, { status: 400 });
@@ -50,6 +57,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This call has already been marked Disqualified" }, { status: 409 });
     }
 
+    const informationTypes = await supabaseRest<InformationTypeRow[]>(
+      "fireblade_information_types?select=id,code,label,active,require_remark_when_no&active=eq.true&order=sort_order.asc,label.asc",
+    );
+
+    const submittedById = new Map<string, { sent: boolean; remarks: string }>();
+    for (const raw of informationSent) {
+      const id = String(raw.informationTypeId || "").trim();
+      if (!id || typeof raw.sent !== "boolean") continue;
+      submittedById.set(id, {
+        sent: raw.sent,
+        remarks: String(raw.remarks || "").trim(),
+      });
+    }
+
+    const commonRemarkCodes = new Set(["QUOTATION", "CATALOGUE", "IMAGE"]);
+    let commonRemarkRequired = false;
+    for (const type of informationTypes) {
+      const answer = submittedById.get(type.id);
+      if (!answer) {
+        return NextResponse.json({ error: `${type.label}: select Yes or No` }, { status: 400 });
+      }
+      if (!answer.sent && commonRemarkCodes.has(type.code)) commonRemarkRequired = true;
+      if (!answer.sent && !commonRemarkCodes.has(type.code) && type.require_remark_when_no && !answer.remarks) {
+        return NextResponse.json({ error: `${type.label}: remarks are required when No is selected` }, { status: 400 });
+      }
+    }
+    if (commonRemarkRequired && !commonRemarks) {
+      return NextResponse.json({ error: "Common Remarks are required when Quotation, Catalogue or Image is marked No" }, { status: 400 });
+    }
+
     let contactId = requestedContactId;
     if (contactId) {
       await supabaseRest(`fireblade_contacts?id=eq.${encodeURIComponent(contactId)}`, {
@@ -58,7 +95,6 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           person_name: personName,
           company_name: companyName || null,
-          location: location || "",
           updated_at: new Date().toISOString(),
         }),
       });
@@ -70,7 +106,6 @@ export async function POST(request: Request) {
           phone_number_normalized: phone,
           person_name: personName,
           company_name: companyName || null,
-          location: location || "",
           created_by: session.username,
           updated_at: new Date().toISOString(),
         }),
@@ -80,8 +115,6 @@ export async function POST(request: Request) {
 
     if (!contactId) throw new Error("Could not create contact");
 
-    const combinedNotes = [notes, commonRemarks ? `Remarks: ${commonRemarks}` : ""].filter(Boolean).join("\n");
-
     const enquiryRows = await supabaseRest<Array<{ id: string }>>("fireblade_call_enquiries?on_conflict=call_id", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -89,9 +122,8 @@ export async function POST(request: Request) {
         call_id: callId,
         contact_id: contactId,
         product_name: productName,
-        location: location || "",
         requirement_details: requirementDetails || null,
-        notes: combinedNotes || null,
+        notes: notes || null,
         status: "COMPLETED",
         entered_by: existing[0]?.entered_by || session.username,
         updated_by: session.username,
@@ -105,27 +137,26 @@ export async function POST(request: Request) {
     const enquiryId = enquiryRows[0]?.id;
     if (!enquiryId) throw new Error("Could not resolve saved enquiry");
 
-    // If historical or backward-compatible checklist items are sent, optionally record them
-    if (informationSent.length > 0) {
+    if (informationTypes.length) {
       const now = new Date().toISOString();
-      const responseRows = informationSent
-        .filter((raw) => raw.informationTypeId && typeof raw.sent === "boolean")
-        .map((raw) => ({
+      const responseRows = informationTypes.map((type) => {
+        const answer = submittedById.get(type.id)!;
+        const remarks = commonRemarkCodes.has(type.code) ? commonRemarks : answer.remarks;
+        return {
           enquiry_id: enquiryId,
-          information_type_id: String(raw.informationTypeId),
-          sent: raw.sent as boolean,
-          remarks: raw.remarks ? String(raw.remarks).trim() : null,
+          information_type_id: type.id,
+          sent: answer.sent,
+          remarks: remarks || null,
           answered_by: session.username,
           updated_at: now,
-        }));
+        };
+      });
 
-      if (responseRows.length > 0) {
-        await supabaseRest("fireblade_enquiry_information_sent?on_conflict=enquiry_id,information_type_id", {
-          method: "POST",
-          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify(responseRows),
-        }).catch(() => undefined);
-      }
+      await supabaseRest("fireblade_enquiry_information_sent?on_conflict=enquiry_id,information_type_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(responseRows),
+      });
     }
 
     return NextResponse.json({ ok: true, contactId, enquiryId });

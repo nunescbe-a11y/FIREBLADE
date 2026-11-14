@@ -1,8 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useVisiblePolling } from "@/lib/use-visible-polling";
-import InformationSentTable from "@/components/InformationSentTable";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type InformationType = {
   id: string;
@@ -34,13 +32,6 @@ type ReportRow = {
   requirement_details: string | null;
   notes: string | null;
   information_items: InformationItem[];
-  source?: "SHANE" | "ENQUIRY";
-  location?: string;
-  very_urgent?: boolean;
-  assigned_to_employee_id?: string | null;
-  assigned_to_employee_name?: string | null;
-  assigned_at?: string | null;
-  assigned_at_epoch_ms?: number | null;
 };
 
 function istDate(ms = Date.now()) {
@@ -52,23 +43,47 @@ function istDate(ms = Date.now()) {
   }).format(new Date(ms));
 }
 
+function callTime(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export default function DashboardInformationSent() {
   const today = istDate();
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
+  const [rows, setRows] = useState<ReportRow[]>([]);
+  const [types, setTypes] = useState<InformationType[]>([]);
   const [employee, setEmployee] = useState("");
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const {
-    data, loading, error, refresh,
-  } = useVisiblePolling<{ rows: ReportRow[]; types: InformationType[] }>(
-    `/api/management/information-sent?${new URLSearchParams({ from, to, source: "ENQUIRY" }).toString()}`,
-    "Could not load Information Sent",
-    { enabled: expanded },
-  );
-  const rows = data?.rows || [];
-  const types = data?.types || [];
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const q = new URLSearchParams({ from, to });
+      const response = await fetch(`/api/management/information-sent?${q.toString()}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load Information Sent");
+      setRows(data.rows || []);
+      setTypes(data.types || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load Information Sent");
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const employees = useMemo(() => {
     const map = new Map<string, string>();
@@ -94,16 +109,12 @@ export default function DashboardInformationSent() {
         row.product_name,
         row.requirement_details,
         row.notes,
-        row.location,
-        row.source,
-        row.assigned_to_employee_name,
-        row.assigned_to_employee_id,
       ].filter(Boolean).some((value) => String(value).toLowerCase().includes(q));
     });
   }, [employee, rows, search]);
 
   const exportUrl = (format: "csv" | "xlsx") => {
-    const q = new URLSearchParams({ from, to, format, source: "ENQUIRY" });
+    const q = new URLSearchParams({ from, to, format });
     if (employee) q.set("employee", employee);
     return `/api/management/information-sent?${q.toString()}`;
   };
@@ -113,9 +124,8 @@ export default function DashboardInformationSent() {
       <div className="overview-section-heading overview-information-sent-heading">
         <div>
           <p className="eyebrow">Customer follow-up</p>
-          <h2 id="overview-information-sent-heading">Other Employee Information Sent</h2>
-          <p className="muted">Regular employee enquiries. Shane original and test handovers are available in the two boxes above.</p>
-          <small style={{ color: "var(--muted)" }}>Automatically refreshes every 5 seconds while this tab is visible.</small>
+          <h2 id="overview-information-sent-heading">Information Sent</h2>
+          <p className="muted">What employees sent to customers after their calls.</p>
         </div>
 
         <div className="overview-information-actions">
@@ -155,7 +165,7 @@ export default function DashboardInformationSent() {
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer, product, phone..." />
             </label>
 
-            <button type="button" className="secondary-button" disabled={loading} onClick={refresh}>
+            <button type="button" className="secondary-button" disabled={loading} onClick={() => void load()}>
               {loading ? "Refreshing..." : "Refresh"}
             </button>
           </div>
@@ -167,7 +177,68 @@ export default function DashboardInformationSent() {
             <span>{from === to ? from : `${from} to ${to}`} · India time</span>
           </div>
 
-          <InformationSentTable rows={visible} types={types} loading={loading} className="overview-information-table" />
+          <div className="table-scroll">
+            <table className="overview-information-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Customer</th>
+                  <th>Product</th>
+                  {types.map((type) => <th key={type.id}>{type.label}</th>)}
+                  <th>Call Date / Time</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={4 + types.length} className="empty-state">Loading information sent...</td></tr>
+                ) : visible.length === 0 ? (
+                  <tr><td colSpan={4 + types.length} className="empty-state">No saved enquiry details match this period.</td></tr>
+                ) : visible.map((row) => {
+                  const itemById = new Map((row.information_items || []).map((item) => [item.id, item]));
+                  return (
+                    <tr key={row.enquiry_id}>
+                      <td>
+                        <strong>{row.employee_name || "Unassigned"}</strong>
+                        <small>{row.employee_id}</small>
+                      </td>
+
+                      <td>
+                        <strong>{row.customer_name || "Customer"}</strong>
+                        <small>{row.customer_company || row.customer_phone}</small>
+                        {row.customer_company && <small>{row.customer_phone}</small>}
+                      </td>
+
+                      <td>
+                        <strong>{row.product_name}</strong>
+                        {row.requirement_details && <small>{row.requirement_details}</small>}
+                      </td>
+
+                      {types.map((type) => {
+                        const item = itemById.get(type.id);
+                        return (
+                          <td key={type.id}>
+                            {!item ? (
+                              <span className="status-pill neutral">Not recorded</span>
+                            ) : item.sent ? (
+                              <span className="status-pill success">Yes</span>
+                            ) : (
+                              <>
+                                <span className="status-pill warning">No</span>
+                                {item.remarks && <small className="information-no-remark">{item.remarks}</small>}
+                              </>
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      <td><strong>{callTime(row.call_at)}</strong></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </section>
