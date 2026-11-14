@@ -8,7 +8,7 @@ import EmployeeAvatar from "@/components/EmployeeAvatar";
 
 const EMPTY_REGISTRY: TeamRegistry = { employees: [], devices: [], assignments: [], lines: [] };
 
-type QuickFilterType = "ALL" | "BULK_3" | "BULK_5" | "TODAY" | "LONG" | "PENDING";
+type QuickFilterType = "ALL" | "TALKED" | "BULK_3" | "BULK_5" | "TODAY" | "LONG" | "PENDING";
 
 export default function CallsClient({ user }: { user: SessionUser }) {
   const [calls, setCalls] = useState<IncomingCall[]>([]);
@@ -31,15 +31,19 @@ export default function CallsClient({ user }: { user: SessionUser }) {
   const [selectedCallIds, setSelectedCallIds] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // Scope: Recent 15,000 vs Full All-Time History (35,400+ calls)
+  const [historyScope, setHistoryScope] = useState<"RECENT_15K" | "ALL_TIME">("RECENT_15K");
+
   // Smooth pagination state
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  const load = async (initial = false) => {
+  const load = async (initial = false, scope = historyScope) => {
     if (initial) setLoading(true); else setRefreshing(true);
     setError("");
     try {
-      const response = await fetch("/api/calls?limit=5000", { cache: "no-store" });
+      const limit = scope === "ALL_TIME" ? 36000 : 15000;
+      const response = await fetch(`/api/calls?limit=${limit}&include_outgoing=true&all=${scope === "ALL_TIME"}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load calls");
       setCalls(data.calls || []);
@@ -168,11 +172,19 @@ export default function CallsClient({ user }: { user: SessionUser }) {
       if (!callBelongsToEmployee(c)) return false;
       if (!callBelongsToLine(c)) return false;
       if (status !== "ALL" && businessStatus !== status) return false;
-      if (callType !== "ALL" && c.direction !== callType) return false;
+      
+      if (callType === "INCOMING") {
+        if (!c.direction.startsWith("INCOMING")) return false;
+      } else if (callType === "OUTGOING") {
+        if (!c.direction.startsWith("OUTGOING")) return false;
+      } else if (callType !== "ALL" && c.direction !== callType) {
+        return false;
+      }
 
       // Quick filter checks
       const num = c.phone_number_normalized || c.phone_number_raw || "";
       const freq = callerFrequency.get(num) || 0;
+      if (quickFilter === "TALKED" && (c.duration_seconds || 0) <= 0) return false;
       if (quickFilter === "BULK_3" && freq < 3) return false;
       if (quickFilter === "BULK_5" && freq < 5) return false;
       if (quickFilter === "TODAY" && c.started_at_epoch_ms < todayStartEpoch) return false;
@@ -188,6 +200,10 @@ export default function CallsClient({ user }: { user: SessionUser }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calls, search, status, callType, employeeId, lineFilter, quickFilter, assignedDeviceIds, selectedEmployee, lineOptions, registry.lines, callerFrequency, todayStartEpoch]);
+
+  const totalTalkSecondsInFiltered = useMemo(() => {
+    return filtered.reduce((acc, c) => acc + (c.duration_seconds || 0), 0);
+  }, [filtered]);
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -343,10 +359,75 @@ export default function CallsClient({ user }: { user: SessionUser }) {
     <>
       <div className="page-header">
         <div>
-          <p className="eyebrow">Incoming activity</p>
+          <p className="eyebrow">Call Activity &amp; Records</p>
           <h1>{user.role === "MARKETING" ? "My Calls" : "Calls Dashboard"}</h1>
         </div>
         <div className="header-actions">
+          {/* History Scope Switcher: 15K Recent vs All-Time 35.4K+ */}
+          <div
+            className="scope-toggle"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              background: "#f1f5f9",
+              padding: "3px",
+              borderRadius: "8px",
+              border: "1px solid #e2e8f0",
+              gap: "2px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryScope("RECENT_15K");
+                void load(true, "RECENT_15K");
+              }}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: historyScope === "RECENT_15K" ? "#0f172a" : "transparent",
+                color: historyScope === "RECENT_15K" ? "#ffffff" : "#64748b",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Recent 15K
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryScope("ALL_TIME");
+                void load(true, "ALL_TIME");
+              }}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: historyScope === "ALL_TIME" ? "#0f172a" : "transparent",
+                color: historyScope === "ALL_TIME" ? "#ffffff" : "#64748b",
+                transition: "all 0.15s ease",
+              }}
+            >
+              All-Time (35,400+)
+            </button>
+          </div>
+
+          <a
+            href="/apk"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="secondary-button"
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px" }}
+            title="Direct download Fireblade App v1.7.19 APK for any phone"
+          >
+            <span>📱</span> Download APK
+          </a>
           <button className="secondary-button" onClick={() => handleExportSelected("csv")}>
             {selectedCallIds.size > 0 ? `Export Selected CSV (${selectedCallIds.size})` : "Export CSV"}
           </button>
@@ -359,8 +440,17 @@ export default function CallsClient({ user }: { user: SessionUser }) {
       <div className="health-summary-grid">
         {[
           ["Calls in view", filtered.length],
-          ["Answered", filtered.filter(c => c.direction === "INCOMING_ANSWERED").length],
-          ["Missed", filtered.filter(c => c.direction === "INCOMING_MISSED").length],
+          ["Employee Talked", filtered.filter(c => (c.duration_seconds || 0) > 0).length],
+          [
+            "Total Talk Time",
+            totalTalkSecondsInFiltered >= 3600
+              ? `${Math.floor(totalTalkSecondsInFiltered / 3600)}h ${Math.floor((totalTalkSecondsInFiltered % 3600) / 60)}m`
+              : `${Math.floor(totalTalkSecondsInFiltered / 60)}m ${totalTalkSecondsInFiltered % 60}s`,
+          ],
+          [
+            "Missed / Unanswered",
+            filtered.filter(c => c.direction === "INCOMING_MISSED" || c.direction === "OUTGOING_UNANSWERED").length,
+          ],
           ["Details pending", pendingInFiltered],
         ].map(([k, n]) => (
           <div className="stat-card" key={k}>
@@ -379,6 +469,16 @@ export default function CallsClient({ user }: { user: SessionUser }) {
         >
           All Calls
           <span className="quick-filter-badge">{calls.length}</span>
+        </button>
+        <button
+          type="button"
+          className={`quick-filter-chip${quickFilter === "TALKED" ? " active" : ""}`}
+          onClick={() => setQuickFilter("TALKED")}
+        >
+          Employee Talked
+          <span className="quick-filter-badge">
+            {calls.filter(c => (c.duration_seconds || 0) > 0).length}
+          </span>
         </button>
         <button
           type="button"
@@ -469,9 +569,13 @@ export default function CallsClient({ user }: { user: SessionUser }) {
           <option value="COMPLETED">Completed</option>
         </select>
         <select value={callType} onChange={(e) => setCallType(e.target.value)}>
-          <option value="ALL">All incoming</option>
-          <option value="INCOMING_ANSWERED">Answered</option>
-          <option value="INCOMING_MISSED">Missed</option>
+          <option value="ALL">All Call Types (In &amp; Out)</option>
+          <option value="INCOMING">All Incoming</option>
+          <option value="OUTGOING">All Outgoing</option>
+          <option value="INCOMING_ANSWERED">Incoming Answered</option>
+          <option value="INCOMING_MISSED">Incoming Missed</option>
+          <option value="OUTGOING_CONNECTED">Outgoing Talked (Connected)</option>
+          <option value="OUTGOING_UNANSWERED">Outgoing Unanswered</option>
         </select>
         <button
           className="secondary-button"
@@ -560,9 +664,9 @@ export default function CallsClient({ user }: { user: SessionUser }) {
                 </th>
                 <th>Date / Time</th>
                 <th>Customer Number</th>
-                <th>Received By</th>
+                <th>Employee / Handled By</th>
                 <th>Company Line</th>
-                <th>Call</th>
+                <th>Direction</th>
                 <th>Duration</th>
                 <th>Person</th>
                 <th>Product / Requirement</th>
@@ -635,8 +739,20 @@ export default function CallsClient({ user }: { user: SessionUser }) {
                         <small>{call.device_id}{call.line_resolution === "MULTI_SIM_UNKNOWN" ? " · SIM not identified" : ""}</small>
                       </td>
                       <td>
-                        <span className={`status-pill ${call.direction === "INCOMING_ANSWERED" ? "success" : "warning"}`}>
-                          {cleanStatus(call.direction).replace("Incoming ", "")}
+                        <span
+                          className={`status-pill ${
+                            call.direction === "INCOMING_ANSWERED" || call.direction === "OUTGOING_CONNECTED"
+                              ? "success"
+                              : "warning"
+                          }`}
+                        >
+                          {call.direction === "OUTGOING_CONNECTED"
+                            ? "Outgoing Talked"
+                            : call.direction === "OUTGOING_UNANSWERED"
+                            ? "Outgoing Missed"
+                            : call.direction === "INCOMING_ANSWERED"
+                            ? "Answered"
+                            : "Missed"}
                         </span>
                       </td>
                       <td>{formatDuration(call.duration_seconds)}</td>

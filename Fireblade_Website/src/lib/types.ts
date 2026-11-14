@@ -22,7 +22,7 @@ export type IncomingCall = {
   phone_number_raw: string | null;
   phone_number_normalized: string | null;
   phone_contact_name: string | null;
-  direction: "INCOMING_ANSWERED" | "INCOMING_MISSED";
+  direction: "INCOMING_ANSWERED" | "INCOMING_MISSED" | "OUTGOING_CONNECTED" | "OUTGOING_UNANSWERED" | string;
   started_at_epoch_ms: number;
   started_at: string;
   duration_seconds: number;
