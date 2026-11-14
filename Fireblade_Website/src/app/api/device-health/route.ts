@@ -30,6 +30,28 @@ type UpdateStatusRow = {
   message: string;
 };
 
+// Cache static metadata for 10s to ensure smooth and snappy UI rendering
+let staticCache: {
+  timestamp: number;
+  departments: Array<{ id: string; name: string }>;
+  exclusions: Array<{ device_id: string }>;
+  releases: AppReleaseRow[];
+} | null = null;
+
+async function getStaticMetadata() {
+  const now = Date.now();
+  if (staticCache && now - staticCache.timestamp < 10_000) {
+    return staticCache;
+  }
+  const [departments, exclusions, releases] = await Promise.all([
+    supabaseRest<Array<{ id: string; name: string }>>("fireblade_departments?select=id,name"),
+    supabaseRest<Array<{ device_id: string }>>("fireblade_dashboard_device_exclusions?select=device_id&active=eq.true"),
+    supabaseRest<AppReleaseRow[]>("fireblade_app_releases?status=eq.PUBLISHED&order=version_code.desc"),
+  ]);
+  staticCache = { timestamp: now, departments, exclusions, releases };
+  return staticCache;
+}
+
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -38,18 +60,18 @@ export async function GET() {
   }
 
   try {
-    const [employees, devices, assignments, health, departments, checks, lines, exclusions, releases, updates] = await Promise.all([
+    const [employees, devices, assignments, health, checks, lines, updates, meta] = await Promise.all([
       supabaseRest<FirebladeEmployee[]>("fireblade_employees?select=*&active=eq.true&order=employee_name.asc"),
       supabaseRest<FirebladeDevice[]>("fireblade_devices?select=*&active=eq.true&order=device_id.asc"),
       supabaseRest<DeviceAssignment[]>("fireblade_device_assignments?select=*&assigned_until=is.null&order=assigned_from.desc"),
       supabaseRest<DeviceHealthRecord[]>("fireblade_device_health?select=*&order=device_id.asc"),
-      supabaseRest<Array<{id:string;name:string}>>("fireblade_departments?select=id,name"),
       supabaseRest<CheckRecord[]>("fireblade_latest_checks?select=request_id,device_id,requested_at,expires_at,responded_at,status,delivery_status"),
       supabaseRest<FirebladeDeviceLine[]>("fireblade_device_lines?select=*&active=eq.true"),
-      supabaseRest<Array<{device_id:string}>>("fireblade_dashboard_device_exclusions?select=device_id&active=eq.true"),
-      supabaseRest<AppReleaseRow[]>("fireblade_app_releases?status=eq.PUBLISHED&order=version_code.desc"),
       supabaseRest<UpdateStatusRow[]>("fireblade_update_status?select=*"),
+      getStaticMetadata(),
     ]);
+
+    const { departments, exclusions, releases } = meta;
 
     const employeeById = new Map(employees.map(e => [e.employee_id, e]));
     const assignmentByDevice = new Map<string, DeviceAssignment>();
