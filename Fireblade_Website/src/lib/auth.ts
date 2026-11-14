@@ -1,4 +1,4 @@
-﻿import crypto from "crypto";
+import crypto from "crypto";
 import { cookies } from "next/headers";
 import type { FirebladeTheme, SessionUser, UserRole } from "@/lib/types";
 import { supabaseAuthPassword, supabaseRest } from "@/lib/supabase";
@@ -38,6 +38,13 @@ function legacyAccounts(): Account[] {
       password: envOrDev("FIREBLADE_ADMIN_PASSWORD", "fireblade-admin"),
       role: "ADMIN",
       displayName: displayEnv("FIREBLADE_ADMIN_DISPLAY_NAME", "Administrator"),
+      departmentName: "Administration",
+    },
+    {
+      username: "nunescbe",
+      password: envOrDev("FIREBLADE_ADMIN_PASSWORD", "fireblade-admin"),
+      role: "ADMIN",
+      displayName: "Nunes Admin",
       departmentName: "Administration",
     },
     {
