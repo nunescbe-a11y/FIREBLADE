@@ -43,6 +43,7 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [devices, setDevices] = useState<DeviceHealthView[]>([]);
   const [callsLoading, setCallsLoading] = useState(true);
+  const [callScope, setCallScope] = useState<"TODAY" | "RECENT">("TODAY");
   const [devicesLoading, setDevicesLoading] = useState(canManage);
   const [callsError, setCallsError] = useState("");
   const [devicesError, setDevicesError] = useState("");
@@ -59,9 +60,11 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   const [productDepartment, setProductDepartment] = useState("");
   const [productEmployee, setProductEmployee] = useState("");
 
-  const loadCalls = useCallback(async () => {
+  const loadCalls = useCallback(async (scope = callScope) => {
     try {
-      const r = await fetch("/api/calls?limit=5000&today=true", { cache: "no-store" });
+      setCallsLoading(true);
+      const query = scope === "TODAY" ? "/api/calls?limit=5000&today=true" : "/api/calls?limit=5000";
+      const r = await fetch(query, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw Error(j.error || "Could not load calls");
       setCalls(j.calls || []);
@@ -72,7 +75,7 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
     } finally {
       setCallsLoading(false);
     }
-  }, []);
+  }, [callScope]);
 
   const loadManagement = useCallback(async () => {
     if (!canManage) return;
@@ -96,15 +99,15 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   }, [canManage]);
 
   useEffect(() => {
-    void loadCalls();
+    void loadCalls(callScope);
     if (canManage) void loadManagement();
     const timer = window.setInterval(() => {
       if (document.hidden) return;
-      void loadCalls();
+      void loadCalls(callScope);
       if (canManage) void loadManagement();
-    }, 30000);
+    }, 12000);
     return () => window.clearInterval(timer);
-  }, [loadCalls, loadManagement, canManage]);
+  }, [loadCalls, loadManagement, canManage, callScope]);
 
   const checkAllPhones = async () => {
     setCheckBusy(true);
@@ -316,7 +319,56 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
     {canManage && <ManagementPerformanceClient />}
 
     <section className="overview-dashboard-section" aria-labelledby="overview-calls-heading">
-      <div className="overview-section-heading"><div><p className="eyebrow">Incoming activity</p><h2 id="overview-calls-heading">Calls</h2></div><button className="secondary-button" disabled={callsLoading} onClick={() => void loadCalls()}>Refresh</button></div>
+      <div className="overview-section-heading">
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+            <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#10b981", boxShadow: "0 0 6px #10b981" }}></span>
+            <p className="eyebrow" style={{ margin: 0 }}>Live Telephony Pipeline · Cloudflare Connected</p>
+          </div>
+          <h2 id="overview-calls-heading">Calls</h2>
+        </div>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", background: "#f1f5f9", padding: "3px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+            <button
+              type="button"
+              style={{
+                border: 0,
+                background: callScope === "TODAY" ? "var(--primary)" : "transparent",
+                color: callScope === "TODAY" ? "#fff" : "var(--muted)",
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontWeight: 700,
+                fontSize: "12px",
+                cursor: "pointer",
+                transition: "all 120ms ease"
+              }}
+              onClick={() => { setCallScope("TODAY"); void loadCalls("TODAY"); }}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              style={{
+                border: 0,
+                background: callScope === "RECENT" ? "var(--primary)" : "transparent",
+                color: callScope === "RECENT" ? "#fff" : "var(--muted)",
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontWeight: 700,
+                fontSize: "12px",
+                cursor: "pointer",
+                transition: "all 120ms ease"
+              }}
+              onClick={() => { setCallScope("RECENT"); void loadCalls("RECENT"); }}
+            >
+              Recent Active (5,000+)
+            </button>
+          </div>
+          <button className="secondary-button" disabled={callsLoading} onClick={() => void loadCalls()}>
+            {callsLoading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      </div>
       {callsError && <div className="error-banner" role="alert">{callsError}</div>}
       <div className="stat-grid">
         <MetricCard label="Incoming calls" value={callsLoading || callsError ? "—" : calls.length} clickable={canManage} active={callMetric === "INCOMING"} onClick={() => chooseCallMetric("INCOMING")} />
@@ -325,6 +377,80 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
         <MetricCard label="Details pending" value={callsLoading || callsError ? "—" : pending} clickable={canManage} active={callMetric === "PENDING"} onClick={() => chooseCallMetric("PENDING")} />
         <MetricCard label="Completed" value={callsLoading || callsError ? "—" : calls.length - pending} clickable={canManage} active={callMetric === "COMPLETED"} onClick={() => chooseCallMetric("COMPLETED")} />
       </div>
+
+      {!callMetric && (
+        <div className="table-card" style={{ marginTop: "16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--line)" }}>
+            <div>
+              <strong style={{ fontSize: "14px", letterSpacing: "-0.01em" }}>Recent Live Incoming Calls</strong>
+              <small style={{ display: "block", color: "var(--muted)", fontSize: "11px", marginTop: "2px" }}>
+                {callScope === "TODAY" ? "Real-time calls captured today from field devices" : "Latest active recorded telephony calls"}
+              </small>
+            </div>
+            <Link href="/calls" className="secondary-button" style={{ fontSize: "12px", padding: "6px 12px" }}>
+              View All Calls →
+            </Link>
+          </div>
+          {calls.length === 0 ? (
+            <div className="empty-panel" style={{ padding: "28px" }}>
+              <p style={{ margin: "0 0 8px 0", fontWeight: 600 }}>No calls recorded yet for today.</p>
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>
+                Live telephony collector is running and ready on Cloudflare. Click &quot;Recent Active (5,000+)&quot; above to inspect recent call records.
+              </p>
+            </div>
+          ) : (
+            <div className="table-scroll">
+              <table className="overview-detail-table">
+                <thead>
+                  <tr>
+                    <th>Date / Time</th>
+                    <th>Customer Number</th>
+                    <th>Employee</th>
+                    <th>Call</th>
+                    <th>Duration</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {calls.slice(0, 8).map(call => (
+                    <tr key={call.call_id}>
+                      <td>{formatIST(call.started_at_epoch_ms)}</td>
+                      <td>
+                        <strong>{call.phone_number_normalized || call.phone_number_raw || "Unknown"}</strong>
+                        <small>{call.person_name || call.company_name || ""}</small>
+                      </td>
+                      <td>
+                        {(() => {
+                          const emp = employeeForCall(call);
+                          const name = emp?.employee_name || call.received_by || "Unassigned";
+                          return (
+                            <div className="employee-inline">
+                              <EmployeeAvatar
+                                employeeId={emp?.employee_id || call.registered_employee_id}
+                                employeeName={name}
+                                photoUpdatedAt={emp?.profile_photo_updated_at}
+                                size="xs"
+                              />
+                              <span>{name}</span>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td>
+                        <span className={`status-pill ${call.direction === "INCOMING_ANSWERED" ? "success" : "warning"}`}>
+                          {cleanStatus(call.direction).replace("Incoming ", "")}
+                        </span>
+                      </td>
+                      <td>{formatDuration(call.duration_seconds)}</td>
+                      <td>{hasHandledDetails(call) ? "Completed" : "Pending"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {canManage && callMetric && <section className="dashboard-drilldown" aria-label={`${callMetricLabel[callMetric]} drill-down`}>
         <div className="drilldown-title"><strong>{callMetricLabel[callMetric]}</strong><span>{callsForMetric.length} calls</span></div>
