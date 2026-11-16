@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import EmployeeAvatar from "@/components/EmployeeAvatar";
@@ -121,8 +121,8 @@ function simLabel(sim: SimPerformanceRow) {
 }
 
 export default function ManagementPerformanceClient() {
-  const [preset, setPreset] = useState<Preset>("TODAY");
-  const initial = rangeFor("TODAY");
+  const [preset, setPreset] = useState<Preset>("MONTH");
+  const initial = rangeFor("MONTH");
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [rows, setRows] = useState<PerformanceRow[]>([]);
@@ -252,10 +252,52 @@ export default function ManagementPerformanceClient() {
       <button className="secondary-button" disabled={loading} onClick={() => void load()}>{loading ? "Refreshing..." : "Refresh"}</button>
     </div>
 
-    <div className="performance-range-bar">
-      <label><span>Period</span><select value={preset} onChange={e=>choosePreset(e.target.value as Preset)}><option value="TODAY">Today</option><option value="YESTERDAY">Yesterday</option><option value="WEEK">This Week</option><option value="MONTH">This Month</option><option value="CUSTOM">Custom</option></select></label>
-      {preset === "CUSTOM" && <><label><span>From</span><input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label><label><span>To</span><input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)}/></label></>}
-      <div className="performance-date-caption"><span>Reporting period</span><strong>{from === to ? from : `${from} - ${to}`}</strong><small>India time</small></div>
+    <div className="performance-range-bar" style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", background: "#f1f5f9", padding: "3px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+          {(["TODAY", "YESTERDAY", "WEEK", "MONTH"] as const).map(p => (
+            <button
+              key={p}
+              type="button"
+              style={{
+                border: 0,
+                background: preset === p ? "var(--primary)" : "transparent",
+                color: preset === p ? "#fff" : "var(--muted)",
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontWeight: 700,
+                fontSize: "12px",
+                cursor: "pointer",
+                transition: "all 120ms ease"
+              }}
+              onClick={() => choosePreset(p)}
+            >
+              {p === "TODAY" ? "Today" : p === "YESTERDAY" ? "Yesterday" : p === "WEEK" ? "This Week" : "This Month"}
+            </button>
+          ))}
+        </div>
+        <label>
+          <span style={{ fontSize: "12px", fontWeight: 600 }}>Period</span>
+          <select value={preset} onChange={e => choosePreset(e.target.value as Preset)}>
+            <option value="TODAY">Today</option>
+            <option value="YESTERDAY">Yesterday</option>
+            <option value="WEEK">This Week</option>
+            <option value="MONTH">This Month</option>
+            <option value="CUSTOM">Custom Range</option>
+          </select>
+        </label>
+        {preset === "CUSTOM" && (
+          <>
+            <label><span>From</span><input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
+            <label><span>To</span><input type="date" value={to} min={from} onChange={e => setTo(e.target.value)} /></label>
+          </>
+        )}
+      </div>
+      <div className="performance-date-caption">
+        <span>Reporting period</span>
+        <strong>{from === to ? from : `${from} - ${to}`}</strong>
+        <small>India time</small>
+      </div>
     </div>
 
     {error && <div className="error-banner" role="alert">{error}</div>}
