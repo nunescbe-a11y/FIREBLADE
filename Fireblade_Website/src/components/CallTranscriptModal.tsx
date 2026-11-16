@@ -273,53 +273,61 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
           </div>
 
           {/* Real Audio Player (Only if audio was uploaded) */}
-          <div
-            style={{
-              background: audioSignedUrl ? "#eff6ff" : "#f8fafc",
-              padding: "14px 16px",
-              borderRadius: "12px",
-              border: `1px solid ${audioSignedUrl ? "#bfdbfe" : "var(--line)"}`,
-              marginBottom: "18px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-              <span style={{ fontSize: "12px", fontWeight: 700, color: audioSignedUrl ? "#1e40af" : "var(--text)" }}>
-                🎧 Audio Voice Recording
-              </span>
-              {audioSignedUrl ? (
+          {audioSignedUrl ? (
+            <div
+              style={{
+                background: "#eff6ff",
+                padding: "14px 16px",
+                borderRadius: "12px",
+                border: "1px solid #bfdbfe",
+                marginBottom: "18px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "#1e40af" }}>
+                  🎧 Real Audio Voice Recording
+                </span>
                 <span style={{ fontSize: "11px", color: "#059669", fontWeight: 700 }}>
                   ● Uploaded &amp; Stored in Supabase
                 </span>
+              </div>
+
+              {loadingAudio ? (
+                <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>Checking audio stream…</p>
               ) : (
-                <span style={{ fontSize: "11px", color: "var(--muted)", fontWeight: 600 }}>
-                  No Audio File Captured on Device
-                </span>
+                <div>
+                  <audio controls src={audioSignedUrl} style={{ width: "100%", height: "36px" }} />
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+                    <a
+                      href={audioSignedUrl}
+                      download={`call_${call.call_id}.mp4`}
+                      style={{ fontSize: "11px", color: "#2563eb", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      ⬇️ Download Audio File
+                    </a>
+                  </div>
+                </div>
               )}
             </div>
-
-            {loadingAudio ? (
-              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>Checking audio stream…</p>
-            ) : audioSignedUrl ? (
-              <div>
-                <audio controls src={audioSignedUrl} style={{ width: "100%", height: "36px" }} />
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
-                  <a
-                    href={audioSignedUrl}
-                    download={`call_${call.call_id}.mp4`}
-                    style={{ fontSize: "11px", color: "#2563eb", fontWeight: 600, textDecoration: "underline" }}
-                  >
-                    ⬇️ Download Audio File
-                  </a>
-                </div>
-              </div>
-            ) : (
-              <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: "1.5" }}>
-                <p style={{ margin: 0 }}>
-                  Only network telephony metadata was logged for this call. Voice audio is only stored when the device call recorder is enabled on the phone.
-                </p>
-              </div>
-            )}
-          </div>
+          ) : (
+            <div
+              style={{
+                background: "#f8fafc",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid var(--line)",
+                marginBottom: "16px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "12px",
+                color: "var(--muted)",
+              }}
+            >
+              <span>ℹ️</span>
+              <span>No audio recording on phone for this call (telephony log only).</span>
+            </div>
+          )}
 
           {/* Real Conversation Details & Staff Notes */}
           <div
@@ -333,7 +341,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
               <strong style={{ fontSize: "14px", color: "var(--text)" }}>
-                Real Conversation Notes &amp; Customer Requirements
+                Real Conversation Notes &amp; What Was Spoken
               </strong>
               {!isEditingNotes && (
                 <button
@@ -350,7 +358,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
                     cursor: "pointer",
                   }}
                 >
-                  ✏️ {hasRealNotes ? "Edit Notes" : "Add Real Notes"}
+                  ✏️ {hasRealNotes ? "Edit Notes" : "Add Spoken Notes"}
                 </button>
               )}
             </div>
@@ -456,7 +464,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
             ) : (
               <div style={{ padding: "16px", background: "var(--surface2)", borderRadius: "8px", textAlign: "center", color: "var(--muted)", fontSize: "12px" }}>
                 <p style={{ margin: "0 0 8px 0" }}>
-                  No customer requirement notes have been entered yet for this call.
+                  No spoken notes recorded yet for this call.
                 </p>
                 <button
                   type="button"

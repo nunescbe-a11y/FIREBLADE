@@ -84,7 +84,11 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
 
   // Allow larger fetch limits so full call history (up to 35,500+) can be loaded on demand
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 10000), 1), 40000);
+  const sinceIdParam = url.searchParams.get("since_id");
+  const sinceId = sinceIdParam && !isNaN(Number(sinceIdParam)) ? Number(sinceIdParam) : null;
+  const limit = sinceId != null
+    ? Math.min(Number(url.searchParams.get("limit") || 50), 100)
+    : Math.min(Math.max(Number(url.searchParams.get("limit") || 10000), 1), 40000);
   const rangeParam = url.searchParams.get("range"); // "today" | "yesterday" | "week" | "all"
   const today = url.searchParams.get("today") === "true" || rangeParam === "today";
   const allHistory = url.searchParams.get("all") === "true" || rangeParam === "all";
@@ -125,6 +129,10 @@ export async function GET(request: Request) {
     const queryParts: string[] = [
       `started_at_epoch_ms=gte.${since}`
     ];
+
+    if (sinceId != null) {
+      queryParts.push(`id=gt.${sinceId}`);
+    }
 
     if (until != null) {
       queryParts.push(`started_at_epoch_ms=lt.${until}`);
