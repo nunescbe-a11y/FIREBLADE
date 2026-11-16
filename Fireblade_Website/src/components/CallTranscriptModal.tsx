@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { IncomingCall } from "@/lib/types";
 import { formatDuration, formatIST } from "@/lib/format";
 import EmployeeAvatar from "@/components/EmployeeAvatar";
@@ -8,22 +8,14 @@ import EmployeeAvatar from "@/components/EmployeeAvatar";
 type Props = {
   call: IncomingCall | null;
   onClose: () => void;
-  onUpdateNotes?: (callId: number, product: string, requirement: string, notes: string) => void;
 };
 
-export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Props) {
+export default function CallTranscriptModal({ call, onClose }: Props) {
   const [audioSignedUrl, setAudioSignedUrl] = useState<string | null>(null);
   const [loadingAudio, setLoadingAudio] = useState(false);
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-
-  // Note fields
-  const [productName, setProductName] = useState("");
-  const [requirementDetails, setRequirementDetails] = useState("");
-  const [notes, setNotes] = useState("");
-  const [personName, setPersonName] = useState("");
-  const [savingNotes, setSavingNotes] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [audioError, setAudioError] = useState("");
+  const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -35,13 +27,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
 
   useEffect(() => {
     if (!call) return;
-
-    setProductName(call.product_name || "");
-    setRequirementDetails(call.requirement_details || "");
-    setNotes(call.notes || "");
-    setPersonName(call.person_name || call.phone_contact_name || "");
-    setSaveSuccess(false);
-    setSaveError("");
+    setAudioError("");
 
     if (!call.recording_url) {
       setAudioSignedUrl(null);
@@ -55,18 +41,29 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
         .then(data => {
           if (data.signedUrl) {
             setAudioSignedUrl(data.signedUrl);
+          } else if (data.error) {
+            setAudioError(data.error);
+            setAudioSignedUrl(null);
           } else {
             setAudioSignedUrl(call.recording_url || null);
           }
         })
-        .catch(() => {
-          setAudioSignedUrl(call.recording_url || null);
+        .catch(err => {
+          setAudioError(err instanceof Error ? err.message : "Failed to load audio stream");
+          setAudioSignedUrl(null);
         })
         .finally(() => setLoadingAudio(false));
     } else {
       setAudioSignedUrl(call.recording_url);
     }
   }, [call]);
+
+  const changePlaybackRate = (rate: number) => {
+    setPlaybackRate(rate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate;
+    }
+  };
 
   if (!call) return null;
 
@@ -75,54 +72,6 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
   const customerPhone = call.phone_number_normalized || call.phone_number_raw || "Unknown Customer";
   const cleanPhone = customerPhone.replace(/\D/g, "");
   const contactName = call.person_name || call.phone_contact_name || call.company_name;
-
-  const handleSaveNotes = async () => {
-    if (!productName.trim() && !notes.trim()) {
-      setSaveError("Please enter product name or conversation notes");
-      return;
-    }
-
-    setSavingNotes(true);
-    setSaveError("");
-
-    try {
-      const res = await fetch("/api/enquiries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          callId: call.call_id,
-          personName: personName.trim() || "Customer",
-          productName: productName.trim() || "General Enquiry",
-          requirementDetails: requirementDetails.trim(),
-          notes: notes.trim(),
-          commonRemarks: "Logged via Live Telephony Call Details",
-          informationSent: [],
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save call details");
-
-      call.product_name = productName.trim();
-      call.requirement_details = requirementDetails.trim();
-      call.notes = notes.trim();
-      call.person_name = personName.trim();
-
-      if (onUpdateNotes) {
-        onUpdateNotes(call.call_id, productName.trim(), requirementDetails.trim(), notes.trim());
-      }
-
-      setSaveSuccess(true);
-      setIsEditingNotes(false);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save call details");
-    } finally {
-      setSavingNotes(false);
-    }
-  };
-
-  const hasRealNotes = Boolean(call.product_name || call.requirement_details || call.notes);
 
   return (
     <div
@@ -150,7 +99,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
           background: "#ffffff",
           borderRadius: "16px",
           width: "100%",
-          maxWidth: "720px",
+          maxWidth: "680px",
           maxHeight: "92vh",
           display: "flex",
           flexDirection: "column",
@@ -188,11 +137,11 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
                 {call.direction.replace(/_/g, " ")}
               </span>
               <span style={{ fontSize: "11px", color: "var(--muted)" }}>
-                ID: #{call.call_id}
+                Call ID: #{call.call_id}
               </span>
             </div>
             <h2 style={{ margin: "2px 0 4px", fontSize: "18px", color: "var(--text)" }}>
-              Call Record: {customerPhone}
+              Call Audio Recording: {customerPhone}
             </h2>
             <div style={{ fontSize: "12px", color: "var(--muted)", display: "flex", gap: "12px", flexWrap: "wrap" }}>
               <span>📅 {formatIST(call.started_at_epoch_ms)}</span>
@@ -220,7 +169,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
           </button>
         </div>
 
-        {/* Scrollable Body */}
+        {/* Modal Body */}
         <div style={{ padding: "20px 22px", overflowY: "auto", flex: "1 1 auto" }}>
           {/* Metadata Cards */}
           <div
@@ -272,36 +221,92 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
             </div>
           </div>
 
-          {/* Real Audio Player (Only if audio was uploaded) */}
+          {/* Real Audio Player */}
           {audioSignedUrl ? (
             <div
               style={{
-                background: "#eff6ff",
-                padding: "14px 16px",
+                background: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)",
+                padding: "18px 20px",
                 borderRadius: "12px",
-                border: "1px solid #bfdbfe",
-                marginBottom: "18px",
+                border: "1px solid #a7f3d0",
+                boxShadow: "0 4px 12px rgba(16, 185, 129, 0.08)",
+                marginBottom: "14px",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                <span style={{ fontSize: "12px", fontWeight: 700, color: "#1e40af" }}>
-                  🎧 Real Audio Voice Recording
-                </span>
-                <span style={{ fontSize: "11px", color: "#059669", fontWeight: 700 }}>
-                  ● Uploaded &amp; Stored in Supabase
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "16px" }}>🎧</span>
+                  <span style={{ fontSize: "13px", fontWeight: 800, color: "#065f46" }}>
+                    Verified Live Call Audio Recording
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#059669",
+                    fontWeight: 800,
+                    background: "#ffffff",
+                    border: "1px solid #6ee7b7",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                  }}
+                >
+                  ● Stored in Supabase
                 </span>
               </div>
 
               {loadingAudio ? (
-                <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>Checking audio stream…</p>
+                <p style={{ margin: 0, fontSize: "13px", color: "var(--muted)" }}>Checking audio stream…</p>
               ) : (
                 <div>
-                  <audio controls src={audioSignedUrl} style={{ width: "100%", height: "36px" }} />
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+                  <audio
+                    ref={audioRef}
+                    controls
+                    src={audioSignedUrl}
+                    style={{ width: "100%", height: "42px", borderRadius: "8px" }}
+                  />
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", flexWrap: "wrap", gap: "8px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#065f46", marginRight: "4px" }}>Speed:</span>
+                      {[1.0, 1.25, 1.5, 2.0].map(speed => (
+                        <button
+                          key={speed}
+                          type="button"
+                          onClick={() => changePlaybackRate(speed)}
+                          style={{
+                            border: playbackRate === speed ? "1px solid #059669" : "1px solid var(--line)",
+                            background: playbackRate === speed ? "#059669" : "#ffffff",
+                            color: playbackRate === speed ? "#ffffff" : "var(--text)",
+                            padding: "3px 8px",
+                            borderRadius: "4px",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            transition: "all 100ms ease",
+                          }}
+                        >
+                          {speed}x
+                        </button>
+                      ))}
+                    </div>
+
                     <a
                       href={audioSignedUrl}
                       download={`call_${call.call_id}.mp4`}
-                      style={{ fontSize: "11px", color: "#2563eb", fontWeight: 600, textDecoration: "underline" }}
+                      style={{
+                        fontSize: "12px",
+                        color: "#047857",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        background: "#ffffff",
+                        border: "1px solid #a7f3d0",
+                        padding: "4px 10px",
+                        borderRadius: "6px",
+                      }}
                     >
                       ⬇️ Download Audio File
                     </a>
@@ -313,178 +318,31 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
             <div
               style={{
                 background: "#f8fafc",
-                padding: "10px 14px",
-                borderRadius: "8px",
+                padding: "24px 20px",
+                borderRadius: "12px",
                 border: "1px solid var(--line)",
-                marginBottom: "16px",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                fontSize: "12px",
+                textAlign: "center",
                 color: "var(--muted)",
+                fontSize: "13px",
               }}
             >
-              <span>ℹ️</span>
-              <span>No audio recording on phone for this call (telephony log only).</span>
+              <div style={{ fontSize: "28px", marginBottom: "6px" }}>📵</div>
+              <strong style={{ display: "block", color: "var(--text)", marginBottom: "4px" }}>
+                No Audio Recording Available for this Call
+              </strong>
+              <span>
+                {call.direction.includes("MISSED") || call.direction.includes("UNANSWERED")
+                  ? "This call was missed or unanswered before audio media connection was established."
+                  : "Call was tracked via SIM telephony logs without an active mic audio capture."}
+              </span>
             </div>
           )}
 
-          {/* Real Conversation Details & Staff Notes */}
-          <div
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: "12px",
-              padding: "16px 18px",
-              marginBottom: "18px",
-              background: "#ffffff",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-              <strong style={{ fontSize: "14px", color: "var(--text)" }}>
-                Real Conversation Notes &amp; What Was Spoken
-              </strong>
-              {!isEditingNotes && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingNotes(true)}
-                  style={{
-                    border: "1px solid var(--line)",
-                    background: "var(--surface2)",
-                    color: "var(--text)",
-                    padding: "4px 10px",
-                    borderRadius: "6px",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  ✏️ {hasRealNotes ? "Edit Notes" : "Add Spoken Notes"}
-                </button>
-              )}
+          {audioError && (
+            <div style={{ background: "#fef2f2", color: "#991b1b", padding: "8px 12px", borderRadius: "6px", fontSize: "12px", marginTop: "10px" }}>
+              {audioError}
             </div>
-
-            {saveSuccess && (
-              <div style={{ background: "#ecfdf5", color: "#065f46", padding: "8px 12px", borderRadius: "6px", fontSize: "12px", marginBottom: "12px" }}>
-                ✓ Call details saved successfully!
-              </div>
-            )}
-
-            {saveError && (
-              <div style={{ background: "#fef2f2", color: "#991b1b", padding: "8px 12px", borderRadius: "6px", fontSize: "12px", marginBottom: "12px" }}>
-                {saveError}
-              </div>
-            )}
-
-            {isEditingNotes ? (
-              <div style={{ display: "grid", gap: "10px" }}>
-                <label style={{ display: "grid", gap: "4px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>Contact Person Name</span>
-                  <input
-                    type="text"
-                    value={personName}
-                    onChange={e => setPersonName(e.target.value)}
-                    placeholder="e.g. Ramesh Kumar"
-                    style={{ padding: "8px", border: "1px solid var(--line)", borderRadius: "6px", fontSize: "13px" }}
-                  />
-                </label>
-
-                <label style={{ display: "grid", gap: "4px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>Product Enquired / Discussed</span>
-                  <input
-                    type="text"
-                    value={productName}
-                    onChange={e => setProductName(e.target.value)}
-                    placeholder="e.g. pH Meter, Refractometer, Borewell Camera, etc."
-                    style={{ padding: "8px", border: "1px solid var(--line)", borderRadius: "6px", fontSize: "13px" }}
-                  />
-                </label>
-
-                <label style={{ display: "grid", gap: "4px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>Requirement Details (Qty / Model / Range)</span>
-                  <input
-                    type="text"
-                    value={requirementDetails}
-                    onChange={e => setRequirementDetails(e.target.value)}
-                    placeholder="e.g. Qty: 2 nos, Range: 0-14 pH, SIDCO Industrial Estate"
-                    style={{ padding: "8px", border: "1px solid var(--line)", borderRadius: "6px", fontSize: "13px" }}
-                  />
-                </label>
-
-                <label style={{ display: "grid", gap: "4px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>What Was Spoken / Notes</span>
-                  <textarea
-                    rows={3}
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    placeholder="Type the actual conversation details spoken by the customer or employee..."
-                    style={{ padding: "8px", border: "1px solid var(--line)", borderRadius: "6px", fontSize: "13px", resize: "vertical" }}
-                  />
-                </label>
-
-                <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", marginTop: "4px" }}>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingNotes(false)}
-                    style={{ padding: "6px 12px", border: "1px solid var(--line)", background: "#ffffff", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingNotes}
-                    onClick={handleSaveNotes}
-                    className="primary-button"
-                    style={{ fontSize: "12px", padding: "6px 14px" }}
-                  >
-                    {savingNotes ? "Saving…" : "💾 Save Real Call Details"}
-                  </button>
-                </div>
-              </div>
-            ) : hasRealNotes ? (
-              <div style={{ display: "grid", gap: "10px", fontSize: "13px" }}>
-                <div>
-                  <small style={{ color: "var(--muted)", display: "block", fontSize: "11px" }}>Product Discussed:</small>
-                  <strong>{call.product_name || "Not entered"}</strong>
-                </div>
-
-                {call.requirement_details && (
-                  <div>
-                    <small style={{ color: "var(--muted)", display: "block", fontSize: "11px" }}>Requirement Specifications:</small>
-                    <span>{call.requirement_details}</span>
-                  </div>
-                )}
-
-                {call.notes && (
-                  <div style={{ background: "var(--surface2)", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--line)" }}>
-                    <small style={{ color: "var(--muted)", display: "block", fontSize: "11px", marginBottom: "4px" }}>Staff Conversation Notes:</small>
-                    <p style={{ margin: 0, whiteSpace: "pre-wrap", color: "var(--text)" }}>{call.notes}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ padding: "16px", background: "var(--surface2)", borderRadius: "8px", textAlign: "center", color: "var(--muted)", fontSize: "12px" }}>
-                <p style={{ margin: "0 0 8px 0" }}>
-                  No spoken notes recorded yet for this call.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingNotes(true)}
-                  style={{
-                    border: "1px solid #bfdbfe",
-                    background: "#eff6ff",
-                    color: "#1d4ed8",
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  + Add What Was Spoken on this Call
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Footer Actions */}
@@ -528,7 +386,7 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
-                background: "#ffffff",
+                background: "var(--surface)",
                 border: "1px solid var(--line)",
                 color: "var(--text)",
                 padding: "8px 14px",
@@ -544,9 +402,16 @@ export default function CallTranscriptModal({ call, onClose, onUpdateNotes }: Pr
 
           <button
             type="button"
-            className="secondary-button"
-            style={{ fontSize: "12px", padding: "8px 14px" }}
             onClick={onClose}
+            style={{
+              padding: "8px 18px",
+              borderRadius: "8px",
+              border: "1px solid var(--line)",
+              background: "#ffffff",
+              fontSize: "12px",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
           >
             Close
           </button>

@@ -52,7 +52,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             } catch (_: Exception) { }
         }
 
-        if (state == TelephonyManager.EXTRA_STATE_OFFHOOK && !shaneEnabled) {
+        if (state == TelephonyManager.EXTRA_STATE_OFFHOOK) {
             val startIntent = Intent(context, CallRecordingService::class.java).apply {
                 action = CallRecordingService.ACTION_START
                 putExtra("PHONE_NUMBER", phoneNumber)
@@ -98,15 +98,13 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
 
         if (state == TelephonyManager.EXTRA_STATE_IDLE && callHadActivity) {
-            if (!shaneEnabled) {
-                val stopIntent = Intent(context, CallRecordingService::class.java).apply {
-                    action = CallRecordingService.ACTION_STOP
-                }
-                try {
-                    context.startService(stopIntent)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+            val stopIntent = Intent(context, CallRecordingService::class.java).apply {
+                action = CallRecordingService.ACTION_STOP
+            }
+            try {
+                context.startService(stopIntent)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
 
             if (shaneEnabled) {
