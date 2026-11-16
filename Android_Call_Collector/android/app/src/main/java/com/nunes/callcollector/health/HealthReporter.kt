@@ -163,8 +163,14 @@ object HealthReporter {
             put("pending_uploads", pendingUploads)
             put("last_call_sync_epoch_ms", syncState.lastSuccessfulSyncEpochMs)
             put("boot_epoch_ms", bootEpochMs)
-            put("collector_state", syncState.state)
-            put("collector_message", syncState.message)
+            val live = com.nunes.callcollector.LiveCallStore.snapshot(context)
+            if (live != null && live.isActive) {
+                put("collector_state", "ON_CALL")
+                put("collector_message", "${live.direction} call with ${live.phoneNumber}".trim())
+            } else {
+                put("collector_state", syncState.state)
+                put("collector_message", syncState.message)
+            }
         }
     }
 }

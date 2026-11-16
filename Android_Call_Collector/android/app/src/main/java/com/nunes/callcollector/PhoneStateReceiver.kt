@@ -31,20 +31,22 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         val shaneEnabled = ShaneMode.isEnabled(context)
 
-        if (shaneEnabled) {
-            when (state) {
-                TelephonyManager.EXTRA_STATE_RINGING -> {
-                    LiveCallStore.onRinging(context, phoneNumber)
-                }
-                TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                    LiveCallStore.onOffhook(context, previous, phoneNumber)
-                }
-                TelephonyManager.EXTRA_STATE_IDLE -> {
-                    if (callHadActivity || LiveCallStore.snapshot(context)?.isActive == true) {
-                        LiveCallStore.onIdle(context)
-                    }
+        when (state) {
+            TelephonyManager.EXTRA_STATE_RINGING -> {
+                LiveCallStore.onRinging(context, phoneNumber)
+                AutomationScheduler.enqueueHealth(context, eventType = "CALL_RINGING", delaySeconds = 0L)
+            }
+            TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                LiveCallStore.onOffhook(context, previous, phoneNumber)
+                AutomationScheduler.enqueueHealth(context, eventType = "CALL_ONGOING", delaySeconds = 0L)
+            }
+            TelephonyManager.EXTRA_STATE_IDLE -> {
+                if (callHadActivity || LiveCallStore.snapshot(context)?.isActive == true) {
+                    LiveCallStore.onIdle(context)
                 }
             }
+        }
+        if (shaneEnabled) {
             try {
                 com.nunes.callcollector.widgets.CallbackWidgetUpdater.updateAll(context)
             } catch (_: Exception) { }

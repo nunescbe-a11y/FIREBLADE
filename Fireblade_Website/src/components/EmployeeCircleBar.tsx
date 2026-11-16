@@ -73,12 +73,15 @@ export default function EmployeeCircleBar({
       if (latestCall) {
         const timeSinceStart = now - latestCall.started_at_epoch_ms;
         const callDurationMs = (latestCall.duration_seconds || 0) * 1000;
+        const isAnswered = latestCall.direction === "INCOMING_ANSWERED" ||
+          latestCall.direction === "OUTGOING_CONNECTED" ||
+          latestCall.direction === "ONGOING";
 
-        // Ongoing call: duration is 0 or start was within 5m and elapsed time is less than duration + 30s
-        if (
-          (latestCall.duration_seconds === 0 && timeSinceStart < FIVE_MINUTES_MS) ||
-          (latestCall.duration_seconds > 0 && timeSinceStart < callDurationMs + 45000)
-        ) {
+        // ONLY answered or connected calls can be speaking! Missed calls are never speaking.
+        if (isAnswered && (
+          (latestCall.duration_seconds === 0 && timeSinceStart < 15 * 60 * 1000) ||
+          (latestCall.duration_seconds > 0 && timeSinceStart < callDurationMs + 30000)
+        )) {
           isSpeaking = true;
           lastCallAgoText = "Speaking Now";
         } else if (timeSinceStart < 60 * 60 * 1000) {
