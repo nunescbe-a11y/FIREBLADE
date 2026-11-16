@@ -85,8 +85,9 @@ export async function GET(request: Request) {
 
   // Allow larger fetch limits so full call history (up to 35,500+) can be loaded on demand
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 10000), 1), 40000);
-  const today = url.searchParams.get("today") === "true";
-  const allHistory = url.searchParams.get("all") === "true";
+  const rangeParam = url.searchParams.get("range"); // "today" | "yesterday" | "week" | "all"
+  const today = url.searchParams.get("today") === "true" || rangeParam === "today";
+  const allHistory = url.searchParams.get("all") === "true" || rangeParam === "all";
   const directionParam = url.searchParams.get("direction");
   const includeOutgoing = url.searchParams.get("include_outgoing") !== "false"; // Default true
 
@@ -97,11 +98,23 @@ export async function GET(request: Request) {
     day: "2-digit",
   }).format(new Date());
 
-  const since = today
-    ? Date.parse(`${istDate}T00:00:00+05:30`)
-    : allHistory
-    ? 0
-    : FIREBLADE_VISIBLE_FROM_EPOCH_MS;
+  const todayStartEpoch = Date.parse(`${istDate}T00:00:00+05:30`);
+  const yesterdayStartEpoch = todayStartEpoch - (24 * 60 * 60 * 1000);
+  const weekStartEpoch = todayStartEpoch - (7 * 24 * 60 * 60 * 1000);
+
+  let since = FIREBLADE_VISIBLE_FROM_EPOCH_MS;
+  let until: number | null = null;
+
+  if (rangeParam === "yesterday") {
+    since = yesterdayStartEpoch;
+    until = todayStartEpoch;
+  } else if (today) {
+    since = todayStartEpoch;
+  } else if (rangeParam === "week") {
+    since = weekStartEpoch;
+  } else if (allHistory) {
+    since = 0;
+  }
 
   const isMarketing = session.role === "MARKETING" && session.employee_id;
 
@@ -110,12 +123,21 @@ export async function GET(request: Request) {
 
     // Build filter query for phase0_calls
     const queryParts: string[] = [
-      `started_at_epoch_ms=gte.${since}`,
-      "order=started_at_epoch_ms.desc,id.desc"
+      `started_at_epoch_ms=gte.${since}`
     ];
 
+    if (until != null) {
+      queryParts.push(`started_at_epoch_ms=lt.${until}`);
+    }
+
+    queryParts.push("order=started_at_epoch_ms.desc,id.desc");
+
     if (directionParam) {
-      if (directionParam === "INCOMING") {
+      if (directionParam === "MISSED") {
+        queryParts.push("direction=in.(INCOMING_MISSED,INCOMING_REJECTED,OUTGOING_UNANSWERED)");
+      } else if (directionParam === "ANSWERED") {
+        queryParts.push("direction=in.(INCOMING_ANSWERED,OUTGOING_CONNECTED)");
+      } else if (directionParam === "INCOMING") {
         queryParts.push("direction=like.INCOMING*");
       } else if (directionParam === "OUTGOING") {
         queryParts.push("direction=like.OUTGOING*");

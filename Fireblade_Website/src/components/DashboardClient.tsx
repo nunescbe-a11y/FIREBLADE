@@ -18,7 +18,8 @@ const EMPTY_REGISTRY: TeamRegistry = { employees: [], devices: [], assignments: 
 type Department = { id: string; name: string };
 type CallMetric = "INCOMING" | "ANSWERED" | "MISSED" | "PENDING" | "COMPLETED";
 type DeviceMetric = "COMPANY" | "WORKING" | "OFF" | "CHECK";
-type CallScope = "LIVE_100" | "TODAY" | "RECENT_5K" | "ALL_TIME";
+type CallScope = "TODAY" | "YESTERDAY" | "WEEK" | "ALL_TIME";
+type OutcomeFilter = "ALL" | "MISSED" | "ANSWERED" | "OUTGOING";
 
 type CountOption = { id: string; name: string; count: number };
 
@@ -46,7 +47,8 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [devices, setDevices] = useState<DeviceHealthView[]>([]);
   const [callsLoading, setCallsLoading] = useState(true);
-  const [callScope, setCallScope] = useState<CallScope>("LIVE_100");
+  const [callScope, setCallScope] = useState<CallScope>("TODAY");
+  const [callOutcomeFilter, setCallOutcomeFilter] = useState<OutcomeFilter>("ALL");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [transcriptModalCall, setTranscriptModalCall] = useState<IncomingCall | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(canManage);
@@ -68,13 +70,13 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   const loadCalls = useCallback(async (scope: CallScope = callScope) => {
     try {
       setCallsLoading(true);
-      const query = scope === "LIVE_100"
-        ? "/api/calls?limit=100&include_outgoing=true"
-        : scope === "TODAY"
-        ? "/api/calls?limit=3000&today=true&include_outgoing=true"
-        : scope === "RECENT_5K"
-        ? "/api/calls?limit=5000&include_outgoing=true"
-        : "/api/calls?limit=36000&all=true&include_outgoing=true";
+      const query = scope === "TODAY"
+        ? "/api/calls?range=today&include_outgoing=true"
+        : scope === "YESTERDAY"
+        ? "/api/calls?range=yesterday&include_outgoing=true"
+        : scope === "WEEK"
+        ? "/api/calls?range=week&include_outgoing=true"
+        : "/api/calls?range=all&limit=36000&include_outgoing=true";
       const r = await fetch(query, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw Error(j.error || "Could not load calls");
@@ -164,22 +166,49 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   }, [activeAssignmentByDevice, employeeById]);
 
   const displayedCalls = useMemo(() => {
-    if (!selectedEmployeeId) return calls;
-    return calls.filter(call => {
-      const emp = employeeForCall(call);
-      return (
-        emp?.employee_id === selectedEmployeeId ||
-        call.registered_employee_id === selectedEmployeeId
+    let list = calls;
+    if (selectedEmployeeId) {
+      list = list.filter(call => {
+        const emp = employeeForCall(call);
+        return (
+          emp?.employee_id === selectedEmployeeId ||
+          call.registered_employee_id === selectedEmployeeId
+        );
+      });
+    }
+    if (callOutcomeFilter === "MISSED") {
+      list = list.filter(call =>
+        call.direction.includes("MISSED") ||
+        call.direction.includes("REJECTED") ||
+        call.direction.includes("UNANSWERED")
       );
-    });
-  }, [calls, selectedEmployeeId, employeeForCall]);
+    } else if (callOutcomeFilter === "ANSWERED") {
+      list = list.filter(call =>
+        call.direction === "INCOMING_ANSWERED" ||
+        call.direction === "OUTGOING_CONNECTED"
+      );
+    } else if (callOutcomeFilter === "OUTGOING") {
+      list = list.filter(call => call.direction.startsWith("OUTGOING"));
+    }
+    return list;
+  }, [calls, selectedEmployeeId, callOutcomeFilter, employeeForCall]);
 
   const targetCalls = selectedEmployeeId ? displayedCalls : calls;
   const answered = useMemo(() => targetCalls.filter(c => c.direction === "INCOMING_ANSWERED" || c.direction === "OUTGOING_CONNECTED").length, [targetCalls]);
   const talked = useMemo(() => targetCalls.filter(c => (c.duration_seconds || 0) > 0).length, [targetCalls]);
-  const missed = useMemo(() => targetCalls.filter(c => c.direction === "INCOMING_MISSED" || c.direction === "OUTGOING_UNANSWERED").length, [targetCalls]);
+  const missed = useMemo(() => targetCalls.filter(c => c.direction.includes("MISSED") || c.direction.includes("REJECTED") || c.direction.includes("UNANSWERED")).length, [targetCalls]);
   const pending = useMemo(() => targetCalls.filter(c => !hasHandledDetails(c)).length, [targetCalls]);
   const totalTalkSeconds = useMemo(() => targetCalls.reduce((acc, c) => acc + (c.duration_seconds || 0), 0), [targetCalls]);
+
+  const missedCount = useMemo(() => calls.filter(c =>
+    c.direction.includes("MISSED") || c.direction.includes("REJECTED") || c.direction.includes("UNANSWERED")
+  ).length, [calls]);
+
+  const answeredCount = useMemo(() => calls.filter(c =>
+    c.direction === "INCOMING_ANSWERED" || c.direction === "OUTGOING_CONNECTED"
+  ).length, [calls]);
+
+  const outgoingCount = useMemo(() => calls.filter(c => c.direction.startsWith("OUTGOING")).length, [calls]);
   const formattedTalkTime = useMemo(() => {
     if (totalTalkSeconds >= 3600) {
       return `${Math.floor(totalTalkSeconds / 3600)}h ${Math.floor((totalTalkSeconds % 3600) / 60)}m`;
@@ -427,23 +456,6 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
               type="button"
               style={{
                 border: 0,
-                background: callScope === "LIVE_100" ? "var(--primary)" : "transparent",
-                color: callScope === "LIVE_100" ? "#fff" : "var(--muted)",
-                padding: "6px 12px",
-                borderRadius: "6px",
-                fontWeight: 700,
-                fontSize: "12px",
-                cursor: "pointer",
-                transition: "all 120ms ease"
-              }}
-              onClick={() => { setCallScope("LIVE_100"); void loadCalls("LIVE_100"); }}
-            >
-              ⚡ Live Stream (100)
-            </button>
-            <button
-              type="button"
-              style={{
-                border: 0,
                 background: callScope === "TODAY" ? "var(--primary)" : "transparent",
                 color: callScope === "TODAY" ? "#fff" : "var(--muted)",
                 padding: "6px 12px",
@@ -455,14 +467,14 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
               }}
               onClick={() => { setCallScope("TODAY"); void loadCalls("TODAY"); }}
             >
-              Today
+              ⚡ Today's Live Calls
             </button>
             <button
               type="button"
               style={{
                 border: 0,
-                background: callScope === "RECENT_5K" ? "var(--primary)" : "transparent",
-                color: callScope === "RECENT_5K" ? "#fff" : "var(--muted)",
+                background: callScope === "YESTERDAY" ? "var(--primary)" : "transparent",
+                color: callScope === "YESTERDAY" ? "#fff" : "var(--muted)",
                 padding: "6px 12px",
                 borderRadius: "6px",
                 fontWeight: 700,
@@ -470,9 +482,26 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                 cursor: "pointer",
                 transition: "all 120ms ease"
               }}
-              onClick={() => { setCallScope("RECENT_5K"); void loadCalls("RECENT_5K"); }}
+              onClick={() => { setCallScope("YESTERDAY"); void loadCalls("YESTERDAY"); }}
             >
-              Recent 5K
+              Yesterday
+            </button>
+            <button
+              type="button"
+              style={{
+                border: 0,
+                background: callScope === "WEEK" ? "var(--primary)" : "transparent",
+                color: callScope === "WEEK" ? "#fff" : "var(--muted)",
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontWeight: 700,
+                fontSize: "12px",
+                cursor: "pointer",
+                transition: "all 120ms ease"
+              }}
+              onClick={() => { setCallScope("WEEK"); void loadCalls("WEEK"); }}
+            >
+              This Week (Active)
             </button>
             <button
               type="button"
@@ -489,7 +518,7 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
               }}
               onClick={() => { setCallScope("ALL_TIME"); void loadCalls("ALL_TIME"); }}
             >
-              All-Time (35.4K+)
+              All-Time Archive (35.4K+)
             </button>
           </div>
           <button className="secondary-button" disabled={callsLoading} onClick={() => void loadCalls()}>
@@ -505,6 +534,92 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
         <MetricCard label="Answered / Connected" value={callsLoading || callsError ? "—" : answered} clickable={canManage} active={callMetric === "ANSWERED"} onClick={() => chooseCallMetric("ANSWERED")} />
         <MetricCard label="Missed / Unanswered" value={callsLoading || callsError ? "—" : missed} clickable={canManage} active={callMetric === "MISSED"} onClick={() => chooseCallMetric("MISSED")} />
         <MetricCard label="Details pending" value={callsLoading || callsError ? "—" : pending} clickable={canManage} active={callMetric === "PENDING"} onClick={() => chooseCallMetric("PENDING")} />
+      </div>
+
+      <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "14px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "4px" }}>
+          Filter Calls:
+        </span>
+        <button
+          type="button"
+          onClick={() => setCallOutcomeFilter("ALL")}
+          style={{
+            border: callOutcomeFilter === "ALL" ? "1px solid var(--primary)" : "1px solid var(--line)",
+            background: callOutcomeFilter === "ALL" ? "var(--primary)" : "var(--surface)",
+            color: callOutcomeFilter === "ALL" ? "#ffffff" : "var(--text)",
+            padding: "5px 12px",
+            borderRadius: "999px",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 120ms ease",
+          }}
+        >
+          All Calls ({calls.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setCallOutcomeFilter("MISSED")}
+          style={{
+            border: callOutcomeFilter === "MISSED" ? "1px solid #ef4444" : "1px solid #fecaca",
+            background: callOutcomeFilter === "MISSED" ? "#ef4444" : "#fef2f2",
+            color: callOutcomeFilter === "MISSED" ? "#ffffff" : "#b91c1c",
+            padding: "5px 12px",
+            borderRadius: "999px",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            transition: "all 120ms ease",
+          }}
+        >
+          <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: callOutcomeFilter === "MISSED" ? "#ffffff" : "#ef4444" }} />
+          🔴 Missed Calls Only ({missedCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setCallOutcomeFilter("ANSWERED")}
+          style={{
+            border: callOutcomeFilter === "ANSWERED" ? "1px solid #10b981" : "1px solid #a7f3d0",
+            background: callOutcomeFilter === "ANSWERED" ? "#10b981" : "#ecfdf5",
+            color: callOutcomeFilter === "ANSWERED" ? "#ffffff" : "#047857",
+            padding: "5px 12px",
+            borderRadius: "999px",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            transition: "all 120ms ease",
+          }}
+        >
+          <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: callOutcomeFilter === "ANSWERED" ? "#ffffff" : "#10b981" }} />
+          🟢 Answered ({answeredCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setCallOutcomeFilter("OUTGOING")}
+          style={{
+            border: callOutcomeFilter === "OUTGOING" ? "1px solid #3b82f6" : "1px solid #bfdbfe",
+            background: callOutcomeFilter === "OUTGOING" ? "#3b82f6" : "#eff6ff",
+            color: callOutcomeFilter === "OUTGOING" ? "#ffffff" : "#1d4ed8",
+            padding: "5px 12px",
+            borderRadius: "999px",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            transition: "all 120ms ease",
+          }}
+        >
+          <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: callOutcomeFilter === "OUTGOING" ? "#ffffff" : "#3b82f6" }} />
+          📤 Outgoing ({outgoingCount})
+        </button>
       </div>
 
       {!callMetric && (
@@ -525,11 +640,53 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
             </Link>
           </div>
           {displayedCalls.length === 0 ? (
-            <div className="empty-panel" style={{ padding: "28px" }}>
-              <p style={{ margin: "0 0 8px 0", fontWeight: 600 }}>No calls recorded yet for this selection.</p>
-              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>
-                Live telephony collector is running and ready. Click &quot;Recent 5K&quot; or &quot;All-Time&quot; above to inspect full historical records.
+            <div className="empty-panel" style={{ padding: "32px 20px", textAlign: "center" }}>
+              <p style={{ margin: "0 0 8px 0", fontWeight: 700, fontSize: "14px", color: "var(--text)" }}>
+                {callScope === "TODAY"
+                  ? "No calls recorded yet today"
+                  : callOutcomeFilter === "MISSED"
+                  ? "No missed calls found in current view"
+                  : selectedEmployeeId
+                  ? "No calls found for this employee in current view"
+                  : "No calls match current filter"}
               </p>
+              <p style={{ margin: "0 0 16px 0", fontSize: "12px", color: "var(--muted)" }}>
+                {callScope === "TODAY"
+                  ? "Live telephony collector is running and ready. Switch to 'This Week (Active)' or 'Yesterday' to inspect telephony calls."
+                  : "Try selecting a broader time scope or clearing filters above."}
+              </p>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
+                {callScope === "TODAY" && (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    style={{ fontSize: "12px", padding: "6px 14px" }}
+                    onClick={() => { setCallScope("WEEK"); void loadCalls("WEEK"); }}
+                  >
+                    View This Week (Active Calls) →
+                  </button>
+                )}
+                {callOutcomeFilter !== "ALL" && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    style={{ fontSize: "12px", padding: "6px 14px" }}
+                    onClick={() => setCallOutcomeFilter("ALL")}
+                  >
+                    Show All Calls
+                  </button>
+                )}
+                {selectedEmployeeId && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    style={{ fontSize: "12px", padding: "6px 14px" }}
+                    onClick={() => setSelectedEmployeeId(null)}
+                  >
+                    Clear Employee Filter
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="table-scroll">
@@ -540,19 +697,21 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                     <th>Customer Number</th>
                     <th>Employee / Handled By</th>
                     <th>Company Line</th>
-                    <th>Direction</th>
+                    <th>Call Direction</th>
                     <th>Duration</th>
-                    <th>Audio &amp; AI Analysis</th>
-                    <th>Requirement / Person</th>
-                    <th>Details</th>
+                    <th>Audio &amp; Real Notes</th>
+                    <th>Requirement / Product</th>
+                    <th>Status</th>
+                    <th>Quick Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedCalls.slice(0, 15).map(call => {
+                  {displayedCalls.slice(0, 25).map(call => {
                     const emp = employeeForCall(call);
                     const name = emp?.employee_name || call.registered_employee_name || call.received_by || "Unassigned";
                     const isOutgoing = call.direction.startsWith("OUTGOING");
                     const isAnswered = call.direction === "INCOMING_ANSWERED" || call.direction === "OUTGOING_CONNECTED";
+                    const isMissed = call.direction.includes("MISSED") || call.direction.includes("REJECTED") || call.direction.includes("UNANSWERED");
                     const lineText = call.company_phone_number
                       ? `${call.company_phone_number} · ${call.resolved_sim_slot_index === 1 ? "SIM 2" : "SIM 1"}`
                       : call.device_id;
@@ -560,9 +719,11 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                       (call.duration_seconds === 0 && Date.now() - call.started_at_epoch_ms < 5 * 60 * 1000) ||
                       (call.duration_seconds > 0 && Date.now() - call.started_at_epoch_ms < (call.duration_seconds * 1000) + 45000)
                     );
+                    const customerPhone = call.phone_number_normalized || call.phone_number_raw || "Unknown";
+                    const cleanPhone = customerPhone.replace(/\D/g, "");
 
                     return (
-                      <tr key={call.call_id}>
+                      <tr key={call.call_id} style={isMissed ? { background: "rgba(254, 242, 242, 0.45)" } : undefined}>
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <strong>{formatIST(call.started_at_epoch_ms)}</strong>
@@ -598,8 +759,8 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                           <small style={{ display: "block", color: "var(--muted)", fontSize: "11px" }}>{call.device_id}</small>
                         </td>
                         <td>
-                          <strong className="phone">{call.phone_number_normalized || call.phone_number_raw || "Unknown"}</strong>
-                          <small style={{ display: "block", color: "var(--muted)", fontSize: "11px" }}>{call.person_name || call.company_name || ""}</small>
+                          <strong className="phone">{customerPhone}</strong>
+                          <small style={{ display: "block", color: "var(--muted)", fontSize: "11px" }}>{call.person_name || call.phone_contact_name || call.company_name || ""}</small>
                         </td>
                         <td>
                           <div className="employee-inline">
@@ -621,20 +782,65 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                           <span style={{ fontSize: "12px" }}>{lineText}</span>
                         </td>
                         <td>
-                          <span
-                            className={`status-pill ${isAnswered ? "success" : "warning"}`}
-                          >
-                            {call.direction === "OUTGOING_CONNECTED"
-                              ? "Outgoing Talked"
-                              : call.direction === "OUTGOING_UNANSWERED"
-                              ? "Outgoing Missed"
-                              : call.direction === "INCOMING_ANSWERED"
-                              ? "Answered"
-                              : "Missed"}
-                          </span>
+                          {isMissed ? (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "11px",
+                                fontWeight: 800,
+                                color: "#b91c1c",
+                                background: "#fef2f2",
+                                border: "1px solid #fecaca",
+                                padding: "3px 8px",
+                                borderRadius: "999px",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#ef4444" }} />
+                              🔴 {call.direction === "OUTGOING_UNANSWERED" ? "Outgoing Missed" : "Missed Call"}
+                            </span>
+                          ) : isOutgoing ? (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#1d4ed8",
+                                background: "#eff6ff",
+                                border: "1px solid #dbeafe",
+                                padding: "3px 8px",
+                                borderRadius: "999px",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              📤 Outgoing Connected
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#047857",
+                                background: "#ecfdf5",
+                                border: "1px solid #a7f3d0",
+                                padding: "3px 8px",
+                                borderRadius: "999px",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              🟢 Answered
+                            </span>
+                          )}
                         </td>
                         <td>
-                          <strong>{formatDuration(call.duration_seconds)}</strong>
+                          <strong style={{ fontVariantNumeric: "tabular-nums" }}>{formatDuration(call.duration_seconds)}</strong>
                         </td>
                         <td>
                           <button
@@ -656,7 +862,7 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                               transition: "all 100ms ease",
                             }}
                           >
-                            🎙️ {call.recording_url ? "Play Audio" : "Transcript"}
+                            🎙️ {call.recording_url ? "Play Audio" : "Real Notes"}
                           </button>
                         </td>
                         <td>
@@ -673,6 +879,53 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                           <span className={`status-pill ${hasHandledDetails(call) ? "success" : "neutral"}`}>
                             {hasHandledDetails(call) ? "Completed" : "Pending"}
                           </span>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                            {cleanPhone && (
+                              <a
+                                href={`https://wa.me/${cleanPhone.startsWith("91") ? cleanPhone : "91" + cleanPhone}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "3px",
+                                  background: "#25D366",
+                                  color: "#ffffff",
+                                  padding: "3px 8px",
+                                  borderRadius: "6px",
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  textDecoration: "none",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title="Chat on WhatsApp"
+                              >
+                                💬 WhatsApp
+                              </a>
+                            )}
+                            <a
+                              href={`tel:${customerPhone}`}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                background: "#f1f5f9",
+                                border: "1px solid var(--line)",
+                                color: "var(--text)",
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                textDecoration: "none",
+                                whiteSpace: "nowrap",
+                              }}
+                              title="Call Back"
+                            >
+                              📞 Call
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     );
