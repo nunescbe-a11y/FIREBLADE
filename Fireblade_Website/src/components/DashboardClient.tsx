@@ -11,11 +11,14 @@ import { when } from "@/lib/date";
 import ManagementPerformanceClient from "@/components/ManagementPerformanceClient";
 import EmployeeAvatar from "@/components/EmployeeAvatar";
 import ManagementWelcomeCard from "@/components/ManagementWelcomeCard";
+import EmployeeCircleBar from "@/components/EmployeeCircleBar";
+import CallTranscriptModal from "@/components/CallTranscriptModal";
 
 const EMPTY_REGISTRY: TeamRegistry = { employees: [], devices: [], assignments: [], lines: [] };
 type Department = { id: string; name: string };
 type CallMetric = "INCOMING" | "ANSWERED" | "MISSED" | "PENDING" | "COMPLETED";
 type DeviceMetric = "COMPANY" | "WORKING" | "OFF" | "CHECK";
+type CallScope = "LIVE_100" | "TODAY" | "RECENT_5K" | "ALL_TIME";
 
 type CountOption = { id: string; name: string; count: number };
 
@@ -43,7 +46,9 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [devices, setDevices] = useState<DeviceHealthView[]>([]);
   const [callsLoading, setCallsLoading] = useState(true);
-  const [callScope, setCallScope] = useState<"RECENT_15K" | "TODAY" | "ALL_TIME">("RECENT_15K");
+  const [callScope, setCallScope] = useState<CallScope>("LIVE_100");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [transcriptModalCall, setTranscriptModalCall] = useState<IncomingCall | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(canManage);
   const [callsError, setCallsError] = useState("");
   const [devicesError, setDevicesError] = useState("");
@@ -60,14 +65,16 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   const [productDepartment, setProductDepartment] = useState("");
   const [productEmployee, setProductEmployee] = useState("");
 
-  const loadCalls = useCallback(async (scope: "RECENT_15K" | "TODAY" | "ALL_TIME" = callScope) => {
+  const loadCalls = useCallback(async (scope: CallScope = callScope) => {
     try {
       setCallsLoading(true);
-      const query = scope === "TODAY"
-        ? "/api/calls?limit=5000&today=true&include_outgoing=true"
-        : scope === "ALL_TIME"
-        ? "/api/calls?limit=36000&all=true&include_outgoing=true"
-        : "/api/calls?limit=15000&include_outgoing=true";
+      const query = scope === "LIVE_100"
+        ? "/api/calls?limit=100&include_outgoing=true"
+        : scope === "TODAY"
+        ? "/api/calls?limit=3000&today=true&include_outgoing=true"
+        : scope === "RECENT_5K"
+        ? "/api/calls?limit=5000&include_outgoing=true"
+        : "/api/calls?limit=36000&all=true&include_outgoing=true";
       const r = await fetch(query, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw Error(j.error || "Could not load calls");
@@ -140,22 +147,6 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
   };
 
   const hasHandledDetails = (call: IncomingCall) => Boolean(call.enquiry_id) && call.resolution_outcome !== "RECOVERED";
-  const answered = useMemo(() => calls.filter(c => c.direction === "INCOMING_ANSWERED" || c.direction === "OUTGOING_CONNECTED").length, [calls]);
-  const talked = useMemo(() => calls.filter(c => (c.duration_seconds || 0) > 0).length, [calls]);
-  const missed = useMemo(() => calls.filter(c => c.direction === "INCOMING_MISSED" || c.direction === "OUTGOING_UNANSWERED").length, [calls]);
-  const pending = useMemo(() => calls.filter(c => !hasHandledDetails(c)).length, [calls]);
-  const totalTalkSeconds = useMemo(() => calls.reduce((acc, c) => acc + (c.duration_seconds || 0), 0), [calls]);
-  const formattedTalkTime = useMemo(() => {
-    if (totalTalkSeconds >= 3600) {
-      return `${Math.floor(totalTalkSeconds / 3600)}h ${Math.floor((totalTalkSeconds % 3600) / 60)}m`;
-    }
-    return `${Math.floor(totalTalkSeconds / 60)}m ${totalTalkSeconds % 60}s`;
-  }, [totalTalkSeconds]);
-  const products = useMemo(() => {
-    const counts = new Map<string, number>();
-    calls.forEach(c => { if (hasHandledDetails(c) && c.product_name) counts.set(c.product_name, (counts.get(c.product_name) || 0) + 1); });
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [calls]);
 
   const employeeById = useMemo(() => new Map(registry.employees.map(e => [e.employee_id, e])), [registry.employees]);
   const activeAssignmentByDevice = useMemo(() => {
@@ -172,9 +163,38 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
     return id ? employeeById.get(id) : undefined;
   }, [activeAssignmentByDevice, employeeById]);
 
+  const displayedCalls = useMemo(() => {
+    if (!selectedEmployeeId) return calls;
+    return calls.filter(call => {
+      const emp = employeeForCall(call);
+      return (
+        emp?.employee_id === selectedEmployeeId ||
+        call.registered_employee_id === selectedEmployeeId
+      );
+    });
+  }, [calls, selectedEmployeeId, employeeForCall]);
+
+  const targetCalls = selectedEmployeeId ? displayedCalls : calls;
+  const answered = useMemo(() => targetCalls.filter(c => c.direction === "INCOMING_ANSWERED" || c.direction === "OUTGOING_CONNECTED").length, [targetCalls]);
+  const talked = useMemo(() => targetCalls.filter(c => (c.duration_seconds || 0) > 0).length, [targetCalls]);
+  const missed = useMemo(() => targetCalls.filter(c => c.direction === "INCOMING_MISSED" || c.direction === "OUTGOING_UNANSWERED").length, [targetCalls]);
+  const pending = useMemo(() => targetCalls.filter(c => !hasHandledDetails(c)).length, [targetCalls]);
+  const totalTalkSeconds = useMemo(() => targetCalls.reduce((acc, c) => acc + (c.duration_seconds || 0), 0), [targetCalls]);
+  const formattedTalkTime = useMemo(() => {
+    if (totalTalkSeconds >= 3600) {
+      return `${Math.floor(totalTalkSeconds / 3600)}h ${Math.floor((totalTalkSeconds % 3600) / 60)}m`;
+    }
+    return `${Math.floor(totalTalkSeconds / 60)}m ${totalTalkSeconds % 60}s`;
+  }, [totalTalkSeconds]);
+  const products = useMemo(() => {
+    const counts = new Map<string, number>();
+    targetCalls.forEach(c => { if (hasHandledDetails(c) && c.product_name) counts.set(c.product_name, (counts.get(c.product_name) || 0) + 1); });
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [targetCalls]);
+
   const productCalls = useMemo(
-    () => productDrilldown ? calls.filter(call => call.product_name === productDrilldown) : [],
-    [calls, productDrilldown],
+    () => productDrilldown ? targetCalls.filter(call => call.product_name === productDrilldown) : [],
+    [targetCalls, productDrilldown],
   );
 
   const productDepartmentOptions = useMemo<CountOption[]>(() => {
@@ -382,6 +402,16 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
       </div>
     </div>
 
+    <EmployeeCircleBar
+      employees={registry.employees}
+      assignments={registry.assignments}
+      lines={registry.lines}
+      calls={calls}
+      selectedEmployeeId={selectedEmployeeId}
+      onSelectEmployee={setSelectedEmployeeId}
+      isLoading={callsLoading}
+    />
+
     <section className="overview-dashboard-section" aria-labelledby="overview-calls-heading">
       <div className="overview-section-heading">
         <div>
@@ -397,8 +427,8 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
               type="button"
               style={{
                 border: 0,
-                background: callScope === "RECENT_15K" ? "var(--primary)" : "transparent",
-                color: callScope === "RECENT_15K" ? "#fff" : "var(--muted)",
+                background: callScope === "LIVE_100" ? "var(--primary)" : "transparent",
+                color: callScope === "LIVE_100" ? "#fff" : "var(--muted)",
                 padding: "6px 12px",
                 borderRadius: "6px",
                 fontWeight: 700,
@@ -406,9 +436,9 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                 cursor: "pointer",
                 transition: "all 120ms ease"
               }}
-              onClick={() => { setCallScope("RECENT_15K"); void loadCalls("RECENT_15K"); }}
+              onClick={() => { setCallScope("LIVE_100"); void loadCalls("LIVE_100"); }}
             >
-              Live Recent (15K)
+              ⚡ Live Stream (100)
             </button>
             <button
               type="button"
@@ -426,6 +456,23 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
               onClick={() => { setCallScope("TODAY"); void loadCalls("TODAY"); }}
             >
               Today
+            </button>
+            <button
+              type="button"
+              style={{
+                border: 0,
+                background: callScope === "RECENT_5K" ? "var(--primary)" : "transparent",
+                color: callScope === "RECENT_5K" ? "#fff" : "var(--muted)",
+                padding: "6px 12px",
+                borderRadius: "6px",
+                fontWeight: 700,
+                fontSize: "12px",
+                cursor: "pointer",
+                transition: "all 120ms ease"
+              }}
+              onClick={() => { setCallScope("RECENT_5K"); void loadCalls("RECENT_5K"); }}
+            >
+              Recent 5K
             </button>
             <button
               type="button"
@@ -452,7 +499,7 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
       </div>
       {callsError && <div className="error-banner" role="alert">{callsError}</div>}
       <div className="stat-grid">
-        <MetricCard label="Calls in view" value={callsLoading || callsError ? "—" : calls.length} clickable={canManage} active={callMetric === "INCOMING"} onClick={() => chooseCallMetric("INCOMING")} />
+        <MetricCard label="Calls in view" value={callsLoading || callsError ? "—" : targetCalls.length} clickable={canManage} active={callMetric === "INCOMING"} onClick={() => chooseCallMetric("INCOMING")} />
         <MetricCard label="Employee Talked" value={callsLoading || callsError ? "—" : talked} />
         <MetricCard label="Total Talk Time" value={callsLoading || callsError ? "—" : formattedTalkTime} />
         <MetricCard label="Answered / Connected" value={callsLoading || callsError ? "—" : answered} clickable={canManage} active={callMetric === "ANSWERED"} onClick={() => chooseCallMetric("ANSWERED")} />
@@ -464,20 +511,24 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
         <div className="table-card" style={{ marginTop: "16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--line)" }}>
             <div>
-              <strong style={{ fontSize: "14px", letterSpacing: "-0.01em" }}>Recent Live Calls Feed</strong>
+              <strong style={{ fontSize: "14px", letterSpacing: "-0.01em" }}>
+                {selectedEmployeeId ? `Live & Past Calls for Selected Staff (${displayedCalls.length})` : "Recent Live Telephony Calls Feed"}
+              </strong>
               <small style={{ display: "block", color: "var(--muted)", fontSize: "11px", marginTop: "2px" }}>
-                {callScope === "TODAY" ? "Real-time calls captured today from field devices" : "Latest active recorded telephony calls (both incoming & outgoing)"}
+                {callScope === "TODAY"
+                  ? "Real-time calls captured today from field devices"
+                  : "Latest live recorded telephony calls (both incoming & outgoing)"}
               </small>
             </div>
             <Link href="/calls" className="secondary-button" style={{ fontSize: "12px", padding: "6px 12px" }}>
               View All Calls ({calls.length}) →
             </Link>
           </div>
-          {calls.length === 0 ? (
+          {displayedCalls.length === 0 ? (
             <div className="empty-panel" style={{ padding: "28px" }}>
-              <p style={{ margin: "0 0 8px 0", fontWeight: 600 }}>No calls recorded yet for today.</p>
+              <p style={{ margin: "0 0 8px 0", fontWeight: 600 }}>No calls recorded yet for this selection.</p>
               <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>
-                Live telephony collector is running and ready. Click &quot;Live Recent (15K)&quot; above to inspect recent call records.
+                Live telephony collector is running and ready. Click &quot;Recent 5K&quot; or &quot;All-Time&quot; above to inspect full historical records.
               </p>
             </div>
           ) : (
@@ -491,12 +542,13 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                     <th>Company Line</th>
                     <th>Direction</th>
                     <th>Duration</th>
+                    <th>Audio &amp; AI Analysis</th>
                     <th>Requirement / Person</th>
                     <th>Details</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {calls.slice(0, 15).map(call => {
+                  {displayedCalls.slice(0, 15).map(call => {
                     const emp = employeeForCall(call);
                     const name = emp?.employee_name || call.registered_employee_name || call.received_by || "Unassigned";
                     const isOutgoing = call.direction.startsWith("OUTGOING");
@@ -504,11 +556,45 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                     const lineText = call.company_phone_number
                       ? `${call.company_phone_number} · ${call.resolved_sim_slot_index === 1 ? "SIM 2" : "SIM 1"}`
                       : call.device_id;
+                    const isCallSpeakingNow = (
+                      (call.duration_seconds === 0 && Date.now() - call.started_at_epoch_ms < 5 * 60 * 1000) ||
+                      (call.duration_seconds > 0 && Date.now() - call.started_at_epoch_ms < (call.duration_seconds * 1000) + 45000)
+                    );
 
                     return (
                       <tr key={call.call_id}>
                         <td>
-                          <strong>{formatIST(call.started_at_epoch_ms)}</strong>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <strong>{formatIST(call.started_at_epoch_ms)}</strong>
+                            {isCallSpeakingNow && (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "3px",
+                                  fontSize: "9px",
+                                  fontWeight: 800,
+                                  color: "#059669",
+                                  background: "#ecfdf5",
+                                  border: "1px solid #a7f3d0",
+                                  padding: "1px 5px",
+                                  borderRadius: "999px",
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: "5px",
+                                    height: "5px",
+                                    borderRadius: "50%",
+                                    backgroundColor: "#10b981",
+                                    animation: "pulseSpeaking 1.5s infinite",
+                                  }}
+                                />
+                                Live
+                              </span>
+                            )}
+                          </div>
                           <small style={{ display: "block", color: "var(--muted)", fontSize: "11px" }}>{call.device_id}</small>
                         </td>
                         <td>
@@ -549,6 +635,29 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
                         </td>
                         <td>
                           <strong>{formatDuration(call.duration_seconds)}</strong>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => setTranscriptModalCall(call)}
+                            style={{
+                              border: call.recording_url ? "1px solid #93c5fd" : "1px solid var(--line)",
+                              background: call.recording_url ? "#eff6ff" : "var(--surface)",
+                              color: call.recording_url ? "#1d4ed8" : "var(--text)",
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              whiteSpace: "nowrap",
+                              transition: "all 100ms ease",
+                            }}
+                          >
+                            🎙️ {call.recording_url ? "Play Audio" : "Transcript"}
+                          </button>
                         </td>
                         <td>
                           {call.product_name ? (
@@ -684,5 +793,12 @@ export default function DashboardClient({ user }: { user: SessionUser }) {
     </section>}
 
     {canManage && <DashboardInformationSent />}
+
+    {transcriptModalCall && (
+      <CallTranscriptModal
+        call={transcriptModalCall}
+        onClose={() => setTranscriptModalCall(null)}
+      />
+    )}
   </>;
 }

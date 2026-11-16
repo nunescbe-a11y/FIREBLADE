@@ -592,3 +592,42 @@ html[data-fireblade-theme="nightmare"] .health-off-category-card,html[data-fireb
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Fireblade Gen 2.2 - Live Telephony Staff Circles & Audio Transcripts */
+@keyframes pulseSpeaking {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.employee-circle-strip::-webkit-scrollbar {
+  height: 6px;
+}
+.employee-circle-strip::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+.employee-circle-strip::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.employee-circle-strip::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.employee-circle-item:hover {
+  border-color: #94a3b8 !important;
+  transform: translateY(-2px);
+}
+.employee-circle-item:active {
+  transform: scale(0.98);
+}
+.employee-circle-item.selected {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+}
+
+.transcript-modal-overlay {
+  animation: fadeIn 120ms ease-out;
+}
+

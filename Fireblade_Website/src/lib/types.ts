@@ -58,6 +58,9 @@ export type IncomingCall = {
   person_name: string | null;
   company_name: string | null;
   known_contact_count: number;
+  transcript?: string | null;
+  relevance_score?: number | null;
+  recording_url?: string | null;
 };
 
 export type Contact = {

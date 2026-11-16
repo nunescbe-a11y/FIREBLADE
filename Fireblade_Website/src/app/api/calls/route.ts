@@ -29,6 +29,17 @@ let cachedRegistry: {
     person_name?: string | null;
     company_name?: string | null;
   }>;
+  recordings: Array<{
+    id: string;
+    call_id: number | null;
+    device_id: string;
+    employee_id: string;
+    phone_number: string;
+    storage_bucket: string;
+    storage_object_path: string;
+    recording_started_at_epoch_ms: number;
+    duration_ms: number;
+  }>;
 } | null = null;
 
 const REGISTRY_CACHE_TTL_MS = 15_000;
@@ -38,14 +49,15 @@ async function getCachedRegistry() {
   if (cachedRegistry && now - cachedRegistry.timestamp < REGISTRY_CACHE_TTL_MS) {
     return cachedRegistry;
   }
-  const [employees, devices, assignments, lines, enquiries] = await Promise.all([
+  const [employees, devices, assignments, lines, enquiries, recordings] = await Promise.all([
     supabaseRest<FirebladeEmployee[]>("fireblade_employees?select=*&active=eq.true&order=employee_name.asc"),
     supabaseRest<FirebladeDevice[]>("fireblade_devices?select=*&active=eq.true&order=device_id.asc"),
     supabaseRest<DeviceAssignment[]>("fireblade_device_assignments?select=*&assigned_until=is.null&order=assigned_from.desc"),
     supabaseRest<FirebladeDeviceLine[]>("fireblade_device_lines?select=*&active=eq.true&order=device_id.asc,sim_slot_index.asc"),
     supabaseRest<any[]>("fireblade_call_enquiries?select=*"),
+    supabaseRest<any[]>("fireblade_call_recordings?select=id,call_id,device_id,employee_id,phone_number,storage_bucket,storage_object_path,recording_started_at_epoch_ms,duration_ms&order=created_at.desc&limit=100").catch(() => []),
   ]);
-  cachedRegistry = { timestamp: now, employees, devices, assignments, lines, enquiries };
+  cachedRegistry = { timestamp: now, employees, devices, assignments, lines, enquiries, recordings: recordings || [] };
   return cachedRegistry;
 }
 
@@ -149,6 +161,9 @@ export async function GET(request: Request) {
     const enqMap = new Map(registry.enquiries.map(e => [e.call_id, e]));
     const empMap = new Map(registry.employees.map(e => [e.employee_id, e]));
     const assignMap = new Map(registry.assignments.map(a => [a.device_id, a.employee_id]));
+    const recByCallId = new Map(
+      (registry.recordings || []).filter(r => r.call_id != null).map(r => [r.call_id!, r])
+    );
 
     let incomingAnsweredCount = 0;
     let incomingMissedCount = 0;
@@ -173,6 +188,26 @@ export async function GET(request: Request) {
       const line = row.sim_slot_index != null
         ? deviceLines.find(l => l.sim_slot_index === row.sim_slot_index) || deviceLines[0]
         : deviceLines[0];
+
+      // Match recording
+      const normDigits = (row.phone_number_normalized || row.phone_number_raw || "").replace(/\D/g, "");
+      const matchedRecording = recByCallId.get(row.id) || (registry.recordings || []).find(r => {
+        if (!r.phone_number) return false;
+        const recDigits = r.phone_number.replace(/\D/g, "");
+        if (!recDigits || !normDigits) return false;
+        const phoneMatch = normDigits.endsWith(recDigits) || recDigits.endsWith(normDigits);
+        if (!phoneMatch) return false;
+        if (r.recording_started_at_epoch_ms && row.started_at_epoch_ms) {
+          return Math.abs(r.recording_started_at_epoch_ms - row.started_at_epoch_ms) < 180_000;
+        }
+        return true;
+      });
+
+      const recordingUrl = matchedRecording?.storage_object_path
+        ? `/api/recordings?path=${encodeURIComponent(matchedRecording.storage_object_path)}`
+        : null;
+
+      const relevanceScore = matchedRecording ? 95 : (enq?.product_name ? 92 : (row.duration_seconds > 0 ? 88 : null));
 
       return {
         call_id: row.id,
@@ -217,6 +252,9 @@ export async function GET(request: Request) {
         person_name: enq?.person_name || null,
         company_name: enq?.company_name || null,
         known_contact_count: enq?.contact_id ? 1 : 0,
+        transcript: enq?.notes || null,
+        relevance_score: relevanceScore,
+        recording_url: recordingUrl,
       };
     });
 
